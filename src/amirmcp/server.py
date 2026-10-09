@@ -17,6 +17,7 @@ import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from logging.handlers import RotatingFileHandler
 from typing import Any
 
 import uvicorn
@@ -29,6 +30,8 @@ from . import sessions, summarize, transcripts
 from .sessions import Session, Snapshot, local_iso
 
 log = logging.getLogger("amirmcp")
+
+LOG_FILE = os.path.expanduser("~/Library/Logs/amirmcp/amirmcp.log")
 
 INSTRUCTIONS = """\
 Read-only view of Amir's coding agents on his Mac (Amir-M5): every Claude Code \
@@ -349,16 +352,29 @@ def load_env_file(path: str) -> None:
             os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+def setup_logging() -> str:
+    """Log to a rotating file. The service runs for months, so the log is capped
+    at about 30 MB: the current 5 MB file plus five older ones."""
+    path = os.environ.get("AMIRMCP_LOG_FILE") or LOG_FILE
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    handler = RotatingFileHandler(path, maxBytes=5_000_000, backupCount=5)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    return path
+
+
 def main() -> None:
     load_env_file(os.environ.get("AMIRMCP_ENV_FILE") or os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s", force=True)
+    log_path = setup_logging()
     secret = os.environ.get("AMIRMCP_SECRET", "")
     if len(secret) < 16:
         raise SystemExit("AMIRMCP_SECRET must be set to at least 16 characters (see .env.example)")
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY must be set (see .env.example)")
     port = int(os.environ.get("AMIRMCP_PORT", "8787"))
-    uvicorn.run(build_app(secret), host="127.0.0.1", port=port, log_level="warning")
+    log.info("starting on 127.0.0.1:%d, logging to %s", port, log_path)
+    # log_config=None sends uvicorn's own messages through the rotating file too.
+    uvicorn.run(build_app(secret), host="127.0.0.1", port=port, log_level="warning", log_config=None)
 
 
 if __name__ == "__main__":

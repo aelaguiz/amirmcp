@@ -4,14 +4,14 @@
 <dict>
   <key>Label</key>
   <string>com.amir.amirmcp</string>
+  <!-- The project's own entry point, so starting at login needs no network
+       and no uv resolve; `uv sync` (run by install-service.sh) keeps it current. -->
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/uv</string>
-    <string>run</string>
-    <string>--directory</string>
-    <string>/Users/aelaguiz/workspace/amirmcp</string>
-    <string>amirmcp</string>
+    <string>/Users/aelaguiz/workspace/amirmcp/.venv/bin/amirmcp</string>
   </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/aelaguiz/workspace/amirmcp</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
@@ -25,9 +25,11 @@
   <true/>
   <key>ThrottleInterval</key>
   <integer>10</integer>
+  <!-- Requests go to the rotating ~/Library/Logs/amirmcp/amirmcp.log; this file
+       only catches a crash before logging starts. -->
   <key>StandardOutPath</key>
-  <string>/Users/aelaguiz/Library/Logs/amirmcp.log</string>
+  <string>/Users/aelaguiz/Library/Logs/amirmcp/launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/aelaguiz/Library/Logs/amirmcp.log</string>
+  <string>/Users/aelaguiz/Library/Logs/amirmcp/launchd.log</string>
 </dict>
 </plist>

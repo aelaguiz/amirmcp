@@ -26,7 +26,7 @@ Requirements are in [REQUIREMENTS.md](REQUIREMENTS.md); tests in
 | Transcript reader | `src/amirmcp/transcripts.py` | Turns Claude Code JSONL and Codex rollout JSONL into short entries with a byte-offset cursor, reads tails, pages backwards and forwards, and searches. |
 | Summaries | `src/amirmcp/summarize.py` | Builds the brief input (live facts, every request Amir made, recent transcript) and asks `claude-haiku-5-5` for a structured brief. Caches by transcript size and state in `~/.cache/amirmcp/briefs.json`. |
 | MCP server | `src/amirmcp/server.py` | Six read-only tools over streamable HTTP (stateless, JSON responses), the secret-path gate, and request logging. |
-| Service | `deploy/com.amir.amirmcp.plist`, `scripts/install-service.sh` | launchd agent that starts at login and restarts on failure; the install script also turns on Tailscale Funnel. |
+| Service | `deploy/com.amir.amirmcp.plist`, `scripts/install-service.sh` | launchd agent that starts at login and restarts on failure. It runs the project's own `.venv/bin/amirmcp`, so starting at login needs no network; the install script runs `uv sync` first and also turns on Tailscale Funnel. |
 
 ## Pane to session: the part that has to be right
 
@@ -110,7 +110,8 @@ guessing.
 
 - Install or restart: `./scripts/install-service.sh`.
 - Restart after a code change: `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp`.
-- Log: `~/Library/Logs/amirmcp.log`, one line per request with the MCP method,
+- Log: `~/Library/Logs/amirmcp/amirmcp.log`, rotated at 5 MB with five old
+  files kept (about 30 MB at most), one line per request with the MCP method,
   tool, time, caller address and user agent (`openai-mcp/1.0.0` is the dot).
 - Stop: `launchctl bootout gui/$(id -u)/com.amir.amirmcp` and
   `tailscale funnel --https=443 off`.

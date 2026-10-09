@@ -34,6 +34,11 @@ uv sync
 ./scripts/install-service.sh  # launchd service + Tailscale Funnel; prints the URL
 ```
 
+It stays up on its own: launchd starts it at every login and restarts it
+within about 10 seconds if it dies, and Tailscale (set to start at login)
+keeps the Funnel address. The log rotates at 5 MB and keeps five old files.
+The dot can reach it only while this Mac is awake and online.
+
 The public URL is `https://amir-m5.fairy-salmon.ts.net/<AMIRMCP_SECRET>/mcp`.
 Paths without the secret get a 404. In ChatGPT the plugin is added with
 Plugins, then Add, then Add custom MCP server, with that URL and "No
@@ -42,7 +47,7 @@ authentication".
 | Task | Command |
 | --- | --- |
 | Restart after a code change | `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp` |
-| Watch calls (the dot shows as `ua=openai-mcp/1.0.0`) | `tail -f ~/Library/Logs/amirmcp.log` |
+| Watch calls (the dot shows as `ua=openai-mcp/1.0.0`) | `tail -f ~/Library/Logs/amirmcp/amirmcp.log` |
 | Unit tests | `uv run pytest` |
 | Call every tool like the dot does | `uv run python scripts/smoke.py http://127.0.0.1:8787/<secret>/mcp` |
 | Stop | `launchctl bootout gui/$(id -u)/com.amir.amirmcp && tailscale funnel --https=443 off` |

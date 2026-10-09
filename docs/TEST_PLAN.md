@@ -78,7 +78,7 @@ ufc-approved and merge these two workflow fixes?") with its cursor.
    press Refresh.
 2. Open the dot (Ralph) and ask in plain words, for example "how many of my
    coding sessions are working, and which ones are waiting on me?"
-3. In `~/Library/Logs/amirmcp.log`, the calls arrive with `ua=openai-mcp/1.0.0`
+3. In `~/Library/Logs/amirmcp/amirmcp.log`, the calls arrive with `ua=openai-mcp/1.0.0`
    from OpenAI addresses, not from this Mac.
 4. Ralph's answer names real sessions with their Herdr spaces and matches
    what `list_sessions` and the panes show.
@@ -99,7 +99,15 @@ Both answers matched `list_sessions` and the session's transcript.
 
 ## 6. Service resilience (after changing the service setup)
 
-- `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp`: the service is back in
-  seconds and the smoke test passes.
-- Kill the process: launchd restarts it within 10 s.
-- After a reboot: the service and Funnel are both up (`tailscale funnel status`).
+- Rerun `./scripts/install-service.sh` while the service is up: it replaces it
+  cleanly and the smoke test passes.
+- `kill -9` the process: launchd restarts it within about 10 s.
+- After a reboot and login: the service and Funnel are both up
+  (`launchctl print gui/$(id -u)/com.amir.amirmcp`, `tailscale funnel status`).
+
+Results on 2026-10-09: installer rerun with the service up worked (the first
+version raced launchd's unload and failed with "Bootstrap failed: 5"; the script
+now waits for the unload); after `kill -9` a new process was serving in 8 s; the
+smoke test passed through the public URL afterwards. Tailscale's own setting
+`TailscaleStartOnLogin` is on, and the Funnel setting is stored by Tailscale, so
+both come back at login. A real reboot has not been tried yet.

@@ -1,0 +1,103 @@
+import asyncio
+import json
+import time
+
+from amirmcp import herdr, sessions
+from amirmcp.server import SecretPath
+from amirmcp.sessions import Session, Snapshot
+
+
+def make_home(tmp_path, session_id, records):
+    home = tmp_path / "claude-homes" / "pro5" / ".claude"
+    project = home / "projects" / "-Users-x-repo"
+    project.mkdir(parents=True)
+    with open(project / f"{session_id}.jsonl", "w") as fh:
+        for r in records:
+            fh.write(json.dumps(r) + "\n")
+    return str(home)
+
+
+def record(status, **extra):
+    return {"pid": 4242, "sessionId": "abcd1234-0000", "cwd": "/Users/x/repo", "status": status, "updatedAt": time.time() * 1000, **extra}
+
+
+SIMPLE = [
+    {"type": "user", "timestamp": "2026-10-09T20:00:00Z", "message": {"content": "ship it"}},
+    {"type": "ai-title", "aiTitle": "Ship the thing"},
+    {"type": "assistant", "timestamp": "2026-10-09T20:00:02Z", "gitBranch": "main", "message": {"content": [{"type": "text", "text": "Done."}]}},
+]
+
+
+def test_claude_states(tmp_path):
+    home = make_home(tmp_path, "abcd1234-0000", SIMPLE)
+    now = time.time()
+    expected = {"busy": "working", "shell": "working", "waiting": "blocked", "idle": "idle", "odd": "unknown"}
+    for status, state in expected.items():
+        s = sessions.claude_session(home, record(status), None, now)
+        assert s.state == state, status
+    s = sessions.claude_session(home, record("idle"), None, now)
+    assert s.account == "pro5" and s.title == "Ship the thing" and s.branch == "main"
+    assert s.first_request == "ship it" and s.transcript.endswith("abcd1234-0000.jsonl")
+
+
+def test_unanswered_question_is_blocked(tmp_path):
+    asking = SIMPLE + [
+        {"type": "assistant", "timestamp": "2026-10-09T20:01:00Z", "message": {"content": [
+            {"type": "tool_use", "name": "AskUserQuestion", "input": {"description": "Merge now?"}}]}},
+    ]
+    home = make_home(tmp_path, "abcd1234-0000", asking)
+    s = sessions.claude_session(home, record("busy"), None, time.time())
+    assert s.state == "blocked" and "AskUserQuestion" in s.state_reason
+
+
+def pane(pane_id="wH2:p1", workspace="SEO 10x plan"):
+    return herdr.Pane("growth", pane_id, "wH2", workspace, "wH2:t1", "1", "title", "/repo", None, "unknown")
+
+
+def test_codex_short_ids_differ_for_same_minute_threads():
+    a = Session("codex", "01a12297-3cd5-7cf1-8a2e-c7fa2ec4d46e", None, None, "/r", "a")
+    b = Session("codex", "01a12297-a8b0-74d0-a48f-5064ddcb2046", None, None, "/r", "b")
+    assert a.short_id != b.short_id
+    assert Session("claude", "d8e7a6ac-1111-2222", None, None, "/r", "c").short_id == "claude:d8e7a6ac"
+
+
+def test_find_by_id_pane_and_name():
+    seo = Session("claude", "d8e7a6ac-1111-2222", None, "pro5", "/Users/x/psagentspace", "10x organic and AI referral", pane=pane())
+    bugs = Session("codex", "01a12297-3cd5-7cf1-8a2e-c7fa2ec4d46e", None, None, "/Users/x/psagentspace", "root cause 7249", pane=pane("wF7:p1", "7249"))
+    snap = Snapshot([seo, bugs], [], time.time())
+    assert sessions.find(snap, "claude:d8e7a6ac") == [seo]
+    assert sessions.find(snap, "d8e7a6ac") == [seo]
+    assert sessions.find(snap, bugs.short_id) == [bugs]
+    assert sessions.find(snap, "wF7:p1") == [bugs]
+    assert sessions.find(snap, "the seo plan") == [seo]
+    assert sessions.find(snap, "psagentspace") == [seo, bugs]  # ambiguous: both returned
+    assert sessions.find(snap, "nothing like this") == []
+
+
+def test_secret_path_gate():
+    seen = []
+
+    async def app(scope, receive, send):
+        seen.append(scope["path"])
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    gate = SecretPath(app, "s3cret-value-long-enough")
+
+    def call(path):
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        async def receive():
+            return {"type": "http.request", "body": b""}
+
+        asyncio.run(gate({"type": "http", "path": path, "headers": []}, receive, send))
+        return sent[0]["status"]
+
+    assert call("/mcp") == 404
+    assert call("/wrong/mcp") == 404
+    assert call("/s3cret-value-long-enoughX/mcp") == 404
+    assert call("/s3cret-value-long-enough/mcp") == 200
+    assert seen == ["/mcp"]

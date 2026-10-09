@@ -88,6 +88,15 @@ ufc-approved and merge these two workflow fixes?") with its cursor.
 Pass: Ralph answers from the connector (step 3) and the answer is right (steps
 4 and 5).
 
+Results on 2026-10-09, BrowserOS Work profile, Ralph at `chatgpt.com/dots/home`:
+
+| Question | Calls that reached the connector (`ua=openai-mcp/1.0.0`) | Ralph's answer |
+| --- | --- | --- |
+| "How many are working, and which ones are waiting on me?" | `list_sessions`, `overview` (40 s), then 12 parallel `get_session` checks | "41 live sessions, 17 working and 24 idle. Thirteen flag something for you", then the queue by name, e.g. "PR-agent Docker fixes: approve mobile #7464 and Rust #962". |
+| "How's the SEO 10x plan session going? What has it actually verified, and what's left?" | `list_sessions(query="SEO 10x")`, `get_session`, `summarize_session`, then `read_history` and `search_history` to check the brief's claims | Separated verified work (robots.txt and 831 sitemap URLs, layout checks, 271/271 localization entries, 32 tests) from what is left, and noted that green CI does not cover the current head. |
+
+Both answers matched `list_sessions` and the session's transcript.
+
 ## 6. Service resilience (after changing the service setup)
 
 - `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp`: the service is back in

@@ -26,7 +26,8 @@ Requirements are in [REQUIREMENTS.md](REQUIREMENTS.md); tests in
 | Session map | `src/amirmcp/sessions.py` | Ties each pane to the exact agent session from the running process, works out live state, and adds sessions running outside Herdr or stopped recently. |
 | Transcript reader | `src/amirmcp/transcripts.py` | Turns Claude Code JSONL and Codex rollout JSONL into short entries with a byte-offset cursor, reads tails, pages backwards and forwards, and searches. |
 | Summaries | `src/amirmcp/summarize.py` | Builds the brief input (live facts, every request Amir made, recent transcript) and asks `claude-haiku-5-5` for a structured brief. Caches by transcript size and state in `~/.cache/amirmcp/briefs.json`. |
-| MCP server | `src/amirmcp/server.py` | Six read-only tools over streamable HTTP (stateless, JSON responses), the secret-path gate, and request logging. |
+| MCP server | `src/amirmcp/server.py` | Six read-only tools and three that act in a pane, over streamable HTTP (stateless, JSON responses), the secret-path gate, and request logging. |
+| Pane control | `src/amirmcp/control.py`, `amirmcp-pane` | Types into an agent's Herdr pane only when the agent is in front and its input box is empty, and reads the screen. amir-server runs `amirmcp-pane` on the Mac over SSH. See [SENDING_TO_AGENTS.md](SENDING_TO_AGENTS.md). |
 | Service | `deploy/com.amir.amirmcp.plist`, `deploy/amirmcp.service`, `deploy/amirmcp-tailscale.service`, `scripts/install-service.sh` | On the Mac a launchd agent that starts at login; on amir-server a systemd user service that starts at boot (lingering is on). Both restart on failure and run the project's own `.venv/bin/amirmcp`, so starting needs no network; the install script runs `uv sync` first and turns on Tailscale Funnel. |
 | Pane dump | `amirmcp-panes` (`herdr.dump`) | Prints this machine's Herdr panes as JSON, adding the client address (`ip:port`) of every SSH connection in a pane. amir-server runs it on the Mac over SSH. |
 
@@ -85,7 +86,9 @@ Idle is never reported as finished. The summary is where "finished the work" vs
 
 ## Tools
 
-All carry `readOnlyHint: true`, so the dot does not ask Amir to confirm each call.
+The reading tools carry `readOnlyHint: true`. `send_message` and `press_keys`
+are marked as acting (`press_keys` also as destructive); in the 2026-10-10 test
+ChatGPT still let Ralph call both without asking Amir first.
 
 | Tool | Answers |
 | --- | --- |
@@ -95,6 +98,9 @@ All carry `readOnlyHint: true`, so the dot does not ask Amir to confirm each cal
 | `search_history(query, session?)` | Find an error, PR, test or decision, with neighbouring entries. |
 | `summarize_session(session, refresh?)` | Haiku brief: status, objective, progress marked said/did/verified with cursors, latest result, remaining, needs Amir, blockers, links, gaps. |
 | `overview(query?)` | One line per live session and whether it needs Amir, needing-Amir first. |
+| `read_screen(session)` | The agent's pane as text, and whether its input box is ready. |
+| `send_message(session, text)` | Types "From Amir, via ChatGPT: " and the message, then confirms it from the transcript: delivered, queued, refused or not confirmed. |
+| `press_keys(session, keys, text?)` | Presses keys ("2", "y", "esc", "down") and optionally types text and Enter; returns the screen. |
 
 Sessions resolve by id (`claude:d8e7a6ac`, `codex:fa93e68a`), pane id (`wH2:p1`), or
 a loose name matched against titles, Herdr workspace and tab labels, directory,
@@ -141,6 +147,9 @@ guessing.
 
 - Install or restart on either machine: `./scripts/install-service.sh`.
 - Restart after a code change: `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp`.
+- The Mac service runs as `ProcessType Interactive`. As a default launchd
+  agent it ran at background priority, and a session list took 16 to 39 s
+  while the Mac was busy (load 75); interactive brought it to about 2 s.
 - Log: `~/Library/Logs/amirmcp/amirmcp.log`, rotated at 5 MB with five old
   files kept (about 30 MB at most), one line per request with the MCP method,
   tool, time, caller address and user agent (`openai-mcp/1.0.0` is the dot).
@@ -153,4 +162,4 @@ guessing.
 - MCP Events, so the dot can say "tell me when X finishes": needs protocol
   version `2026-07-28`, `events/list|subscribe|unsubscribe`, stored
   subscriptions and signed webhook delivery.
-- Remote control (prompting agents) as a separate, explicitly approved tool set.
+- Starting, stopping or restarting agents, if Amir asks for it.

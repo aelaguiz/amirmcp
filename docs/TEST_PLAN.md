@@ -22,6 +22,10 @@ records, so they run anywhere in about a second.
 | Short ids | two Codex threads started the same minute get different short ids. |
 | Session lookup | id, id prefix, pane id and loose names resolve; several matches return all of them. |
 | Secret path | requests outside `/<secret>/` get a 404; requests under it reach the app with the prefix removed. |
+| Input box | 18 real screen captures (`tests/screens/`) read as ready, draft or absent: placeholders, suggestions and queued-message hints are not drafts; Claude and Codex menus, approvals and trust dialogs have no input box. |
+| Typing | a message is the typed lead-in then the paste; nothing is typed over a draft, into a menu, into a shell, or into a pane whose SSH connection is a different one. |
+| Codex question | an unanswered `request_user_input` reads as waiting on Amir until his next message. |
+| Delivery check | the first transcript line written after sending is found (it was skipped once). |
 
 ## 2. Against live data on this Mac (after any change to the session map)
 
@@ -43,10 +47,12 @@ uv run python scripts/smoke.py "http://127.0.0.1:8787/<secret>/mcp"
 uv run python scripts/smoke.py "https://amir-m5.fairy-salmon.ts.net/<secret>/mcp" --overview
 ```
 
-`smoke.py` speaks MCP the way the dot does. It checks that all six tools are
-listed as read-only, then calls each one against a live session, checks that
-paging back returns earlier entries, and prints the Haiku brief's status and
-"needs Amir" line. `--overview` also summarizes every live session.
+`smoke.py` speaks MCP the way the dot does. It checks that only `send_message`
+and `press_keys` are marked as acting, then calls each reading tool against a
+live session (including `read_screen`), checks that paging back returns
+earlier entries, and prints the Haiku brief's status and "needs Amir" line.
+`--overview` also summarizes every live session; `--send <session>` sends one
+test message, so point it only at a test agent.
 
 Pass: every line says `ok`; the brief's status matches what the pane shows;
 `curl https://amir-m5.fairy-salmon.ts.net/mcp` (no secret) returns 404.
@@ -132,3 +138,35 @@ Results on 2026-10-10:
 | Crash | After `kill -9`, a new process was serving in 7 s. |
 | Port 8443 | ChatGPT could not reach 8443 on either machine (`424 Connection failed`, kind network); hence the `home-mcp` node on 443. |
 | Ralph, Work profile | "What agents are running on my home server?" Calls `list_sessions` and two `get_session`; Ralph answered "Plugin works. Two agents on amir-server", naming both panes, the subgame decisions, and that SNG training needs nothing. |
+
+## 8. Sending to agents (after any change to control.py or the pane tools)
+
+Never against Amir's working agents. Start a private Herdr session from a clean
+environment (so the agents save transcripts), with agents started the way he
+starts his:
+
+```bash
+env -i HOME=$HOME USER=$USER SHELL=/bin/zsh TERM=xterm-256color LANG=en_US.UTF-8 \
+  PATH=$HOME/.cargo/bin:/opt/homebrew/bin:/usr/bin:/bin SSH_AUTH_SOCK=$SSH_AUTH_SOCK \
+  herdr --session amirmcp-lab server     # then workspaces with aim claude run sonnet,
+                                         # codex -p yolo, and ssh home + aim claude run
+```
+
+Call the tools on those agents (`amirmcp-lab:w1:p1` style ids) for each case
+below, then ask Ralph to do one send and one prompt answer. Afterwards exit the
+agents, `herdr session stop amirmcp-lab` and `herdr session delete amirmcp-lab`.
+
+Results on 2026-10-10 (Claude Code 2.1.296, Codex 0.161):
+
+| Case | Claude, Mac | Codex, Mac | Claude on amir-server via Mac pane |
+| --- | --- | --- | --- |
+| Idle, one line and several lines | delivered | delivered | delivered |
+| Mid-turn | delivered when the step ended, acted on | delivered at the next tool call, acted on | not run |
+| Long message (2 to 7 thousand characters) | delivered and acted on (it counted 30 lines) | delivered exactly, acted on | not run |
+| Amir's unsent draft in the input box | refused, draft left alone | refused | refused |
+| Question menu | refused; `press_keys ["2"]` answered it | Codex question: a plain message answered it | refused; `press_keys ["2"]` answered it |
+| Command approval | not run (Amir runs bypass mode) | refused; `press_keys ["y"]` ran the command | not run |
+| Agent exited, pane is a shell | refused, nothing typed | (same check) | agent suspended behind its shell: refused |
+| Ralph, BrowserOS Work profile | "Tell the Claude agent in my amirmcp-lab session to reply RALPH WAS HERE": `list_sessions`, `send_message` (delivered), `read_history`; Ralph: "It replied exactly: RALPH WAS HERE" | | "The lab agent on my home server is asking me a question; answer sparrow": `list_sessions`, `read_screen`, `press_keys ["2"]`; Ralph: "Selected Sparrow. The agent replied: Sparrow." |
+
+ChatGPT did not ask Amir to confirm either of Ralph's acting calls.

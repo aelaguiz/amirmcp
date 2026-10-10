@@ -4,7 +4,7 @@ Amir asked on 2026-10-10 for his dot (Ralph) to be able to issue commands back
 to his coding agents through this connector, and to have it work in the hard
 cases: messages that don't get submitted, prompts that pop up, agents on
 amir-server. This is the plan, built from experiments run that day. It
-extends the read-only connector described in
+extends the connector described in
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); results are in
 [TEST_PLAN.md](TEST_PLAN.md), section 8.
 
@@ -120,8 +120,11 @@ reported as waiting on Amir, with the question, instead of idle.
 
 ## What stays the same
 
-- Access is still the one secret in the URL. Amir chose light protection, and
-  ChatGPT asks him to confirm each call to a tool that is not read-only.
+- Access is still the one secret in the URL; Amir chose light protection.
+  ChatGPT does not ask him before Ralph sends: in the 2026-10-10 test Ralph
+  called `send_message` and `press_keys` without a confirmation step. Each
+  plugin's "Permission" setting in ChatGPT (set to "Allow low-risk") is where
+  that would change.
 - The connector never starts, stops or restarts agents, and never answers a
   prompt on its own. Every keystroke comes from a tool call Ralph made.
 

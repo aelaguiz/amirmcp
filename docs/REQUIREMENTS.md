@@ -7,8 +7,9 @@ connector that makes that possible. The source brief is
 `/Users/aelaguiz/Downloads/coding-session-capabilities.md`, written by the dot
 itself on 2026-10-09; this document turns it into checkable requirements.
 
-The first version is read-only and on demand: the dot asks, the connector
-answers from what is on disk and in Herdr at that moment.
+The first version was read-only and on demand: the dot asks, the connector
+answers from what is on disk and in Herdr at that moment. On 2026-10-10 Amir
+added sending (requirement 6).
 
 ## Who and where
 
@@ -73,6 +74,17 @@ answers from what is on disk and in Herdr at that moment.
    - Summaries are written by Claude Haiku 5.5 (`claude-haiku-5-5`) and cached
      by transcript position, so asking twice costs nothing new.
 
+6. **Tell an agent something, for Amir.** Added 2026-10-10.
+   - Send a message into an agent's input box as Amir's words, whether the
+     agent is idle or mid-turn, and report whether the agent received it,
+     from its own transcript.
+   - See and answer what the agent is showing: a question, menu, permission
+     or approval prompt.
+   - Never type into a shell (the agent exited), into a prompt that would
+     take the keystrokes, or on top of text Amir has typed and not sent.
+   - Works the same for agents on amir-server running in a Mac pane's SSH
+     session. Design and experiments: [SENDING_TO_AGENTS.md](SENDING_TO_AGENTS.md).
+
 ## Machines
 
 Added 2026-10-10 at Amir's request: amir-server ("home") runs its own copy,
@@ -91,7 +103,8 @@ from Herdr panes on the Mac, and each must be shown with that pane.
 
 ## Out of scope for this version
 
-- Remote control: prompting, interrupting or starting agents.
+- Starting, stopping or restarting agents. (Sending them messages and
+  answering their prompts is in scope since 2026-10-10.)
 - Push notifications when a session finishes or blocks (MCP Events). A later
   addition.
 - A permanently running local model. Summaries are on demand through the
@@ -103,6 +116,8 @@ from Herdr panes on the Mac, and each must be shown with that pane.
   correct Herdr locations, answers "how's X going" for a named session with a
   grounded summary, and quotes recent history with sources.
 - The same tools work from a local MCP client on this Mac.
+- The dot sends a message to an agent and it arrives, and answers an agent's
+  question menu, on both machines.
 - Tests in this repo cover the pane-to-transcript mapping and transcript
   parsing against real files, and pass.
 - Code is committed and pushed to https://github.com/aelaguiz/amirmcp. No

@@ -1,11 +1,13 @@
 # amirmcp
 
-A read-only MCP connector that lets Amir's OpenAI dot (Ralph), which runs on
-OpenAI's servers, see the Claude Code and Codex sessions running on his
-machines, with the Herdr pane each one is in. From anywhere he can ask "how's
-the SEO plan going?" or "what's waiting on me?" and get an answer grounded in
-the agents' own transcripts, with summaries written by Claude Haiku 5.5. It
-never types into a pane or changes a file.
+An MCP connector that lets Amir's OpenAI dot (Ralph), which runs on OpenAI's
+servers, see the Claude Code and Codex sessions running on his machines, with
+the Herdr pane each one is in, and talk to them for him. From anywhere he can
+ask "how's the SEO plan going?" or "what's waiting on me?" and get an answer
+grounded in the agents' own transcripts, with summaries written by Claude
+Haiku 5.5, then say "tell it to go ahead" and Ralph types that into the
+agent's input box. It never starts, stops or restarts agents, and never changes
+a file.
 
 One copy runs on each machine where agents run, and each is its own plugin in
 the dot (ChatGPT, BrowserOS Work profile, chatgpt.com/plugins):
@@ -23,6 +25,7 @@ an agent running on the server.
 - [Requirements](docs/REQUIREMENTS.md): what the dot must be able to do.
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): how it works and why.
 - [Test plan](docs/TEST_PLAN.md): how to check it, from unit tests to the dot.
+- [Sending to agents](docs/SENDING_TO_AGENTS.md): how the dot types into agents' panes safely, and the experiments behind it.
 
 ## What the dot can call
 
@@ -34,6 +37,13 @@ an agent running on the server.
 | `get_session` | One session's state, Amir's requests in it, and its last entries. |
 | `read_history` | A bounded slice of a transcript, paged by cursor. |
 | `search_history` | Find an error, PR, test or decision across transcripts. |
+| `read_screen` | What an agent's pane shows right now, such as a question or approval it is waiting on. |
+| `send_message` | "Tell it to ..." Types Amir's message into the agent's input box, prefixed "From Amir, via ChatGPT:", and confirms the agent got it. Refuses when a prompt is showing, Amir has unsent text there, or the agent has exited. |
+| `press_keys` | Answers a question, menu or approval the agent is showing ("2", "y", "esc"), optionally with typed text. |
+
+Sending works for agents on amir-server too: the server's copy types through
+the Mac's Herdr pane over SSH. Why each check exists, and what failed without
+it, is in [Sending to agents](docs/SENDING_TO_AGENTS.md).
 
 ## Run it on a machine
 
@@ -67,7 +77,8 @@ way but shows their Herdr panes only while the Mac is reachable.
 | Task | Command |
 | --- | --- |
 | Unit tests | `uv run pytest` |
-| Call every tool like the dot does | `uv run python scripts/smoke.py https://<host>/<secret>/mcp` |
+| Call every tool like the dot does (reads only) | `uv run python scripts/smoke.py https://<host>/<secret>/mcp` |
+| Also send one message to a test agent | add `--send <session>` |
 
 After changing tools or a server's description, press Refresh on the plugin in
 ChatGPT so the dot sees the new version.

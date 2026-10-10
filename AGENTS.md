@@ -43,10 +43,11 @@ an intuition. The full practice is in `$skill-authoring`.
 - Before executing a plan, ask once where it overbuilds and cut that work.
   Use `$startup-pragmatism` during planning. Never use engineering-time estimates
   to scope, prioritize, or recommend work.
-- The capability brief this repo answers to asks for a read-only, on-demand
-  first version and says not to build elaborate security. Keep it that way:
-  one shared secret on the public endpoint, no remote control of sessions,
-  until Amir asks for more.
+- The capability brief this repo answers to asked for an on-demand first
+  version and said not to build elaborate security: one shared secret on the
+  public endpoint. On 2026-10-10 Amir asked for the dot to send messages to
+  agents and answer their prompts (docs/SENDING_TO_AGENTS.md); starting,
+  stopping or restarting agents is still out until he asks.
 - Use `rg` first, scoped to the relevant path. Never run `rg`, `find`, or similar
   broad scans across home, parent directories, `/`, or other large trees unless
   Amir explicitly asks; they disrupt his parallel work. Read the session homes

@@ -101,3 +101,36 @@ def test_secret_path_gate():
     assert call("/s3cret-value-long-enoughX/mcp") == 404
     assert call("/s3cret-value-long-enough/mcp") == 200
     assert seen == ["/mcp"]
+
+
+def test_agent_in_ssh_session_gets_the_remote_pane(tmp_path, monkeypatch):
+    """On amir-server, an agent's SSH_CONNECTION names the Mac pane it runs in."""
+    home = make_home(tmp_path, "abcd1234-0000", SIMPLE)
+    mac_pane = herdr.Pane("rustai", "w1A:p1", "w1A", "SNG bots", "w1A:t1", "1", "SNG backend", "/home/x", None, "unknown",
+                          processes=[{"name": "ssh", "pid": 8996, "cmdline": "ssh home", "tcp_local": ["100.72.74.74:50370"]}],
+                          herdr_host="amir-m5")
+    monkeypatch.setenv("AMIRMCP_HERDR_HOSTS", "amir-m5")
+    monkeypatch.setattr(herdr, "available", lambda: False)
+    monkeypatch.setattr(herdr, "remote_panes", lambda host: ([mac_pane], []))
+    monkeypatch.setattr(sessions, "claude_process_records", lambda: {4242: (home, record("busy"))})
+    monkeypatch.setattr(sessions, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(sessions, "_codex_pids", lambda: [])
+    monkeypatch.setattr(sessions, "codex_account_labels", lambda: {})
+    monkeypatch.setattr(sessions, "_process_env", lambda pid: {"SSH_CONNECTION": "100.72.74.74 50370 100.66.11.7 22"})
+    snap = sessions.snapshot(recent_hours=0)
+    [s] = snap.sessions
+    assert s.pane is mac_pane and s.state == "working" and not s.notes
+    assert s.as_dict(time.time())["where"]["herdr_on"] == "amir-m5"
+
+    # A different SSH client (another terminal) is not in any Herdr pane.
+    monkeypatch.setattr(sessions, "_process_env", lambda pid: {"SSH_CONNECTION": "100.72.74.74 59999 100.66.11.7 22"})
+    [s] = sessions.snapshot(recent_hours=0).sessions
+    assert s.pane is None and s.notes == ["Running, but not in any Herdr pane."]
+
+
+def test_pane_survives_the_json_dump():
+    from dataclasses import asdict
+
+    p = herdr.Pane("rustai", "w15:p1", "w15", "x", "w15:t1", "1", "t", "/", None, "unknown", processes=[{"name": "ssh"}])
+    again = herdr.Pane(**{**json.loads(json.dumps(asdict(p))), "herdr_host": "amir-m5"})
+    assert again.location()["herdr_on"] == "amir-m5" and again.processes == [{"name": "ssh"}]

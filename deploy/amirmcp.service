@@ -1,0 +1,16 @@
+# systemd user service for Linux machines (amir-server). Installed by
+# scripts/install-service.sh into ~/.config/systemd/user/. With lingering on,
+# it starts at boot without a login and restarts if it exits.
+[Unit]
+Description=amirmcp: read-only coding-session connector for Amir's dot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/workspace/amirmcp
+ExecStart=%h/workspace/amirmcp/.venv/bin/amirmcp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

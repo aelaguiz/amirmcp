@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import socket
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,21 +33,44 @@ from .sessions import Session, Snapshot, local_iso
 
 log = logging.getLogger("amirmcp")
 
-LOG_FILE = os.path.expanduser("~/Library/Logs/amirmcp/amirmcp.log")
 
-INSTRUCTIONS = """\
-Read-only view of Amir's coding agents on his Mac (Amir-M5): every Claude Code \
-and Codex session in his Herdr spaces, plus ones that stopped recently. For "how's \
-X going", call summarize_session; for "what's going on" or "what needs me", call \
-overview; list_sessions finds ids. States: working, blocked (waiting on Amir), \
-idle (finished its turn; not necessarily done), stopped (no process), unknown. \
-Cursors like c123 point into a transcript; cite them and check details with \
-read_history or search_history.\
+def load_env_file(path: str) -> None:
+    """KEY=value lines from the repo's .env, without overriding the environment."""
+    if not os.path.exists(path):
+        return
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+# Machine settings (secret, key, machine name, Herdr hosts) live in the repo's
+# .env, read before the server's description is built.
+load_env_file(os.environ.get("AMIRMCP_ENV_FILE") or os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+
+MACHINE = os.environ.get("AMIRMCP_MACHINE") or socket.gethostname().split(".")[0]
+
+LOG_FILE = os.path.expanduser(
+    "~/Library/Logs/amirmcp/amirmcp.log" if sys.platform == "darwin" else "~/.local/state/amirmcp/amirmcp.log"
+)
+
+INSTRUCTIONS = f"""\
+Read-only view of Amir's coding agents on {MACHINE}: every Claude Code and Codex \
+session running there, with the Herdr pane each one is in, plus ones that stopped \
+recently. Each of Amir's machines has its own Coding sessions plugin; ask each one \
+when he asks about all his work. For "how's X going", call summarize_session; for \
+"what's going on" or "what needs me", call overview; list_sessions finds ids. \
+States: working, blocked (waiting on Amir), idle (finished its turn; not \
+necessarily done), stopped (no process), unknown. Cursors like c123 point into a \
+transcript; cite them and check details with read_history or search_history.\
 """
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
-mcp = MCPServer("amirmcp", title="Amir's coding sessions", instructions=INSTRUCTIONS)
+mcp = MCPServer("amirmcp", title=f"Coding sessions on {MACHINE}", instructions=INSTRUCTIONS)
 
 _snap_lock = threading.Lock()
 _snaps: dict[bool, Snapshot] = {}
@@ -109,12 +134,19 @@ def list_sessions(query: str | None = None, include_stopped: bool = False) -> di
     counts: dict[str, int] = {}
     for s in snap.sessions:
         counts[s.state] = counts.get(s.state, 0) + 1
-    return {
+    out = {
+        "machine": MACHINE,
         "observed_at": local_iso(snap.observed_at),
         "counts_by_state": counts,
         "sessions": [s.as_dict(snap.observed_at) for s in found],
         "gaps": snap.gaps,
     }
+    if snap.ssh_panes and not query:
+        out["panes_running_ssh"] = {
+            "note": "These panes hold SSH sessions into other machines; agents there are listed by that machine's Coding sessions plugin.",
+            "panes": snap.ssh_panes,
+        }
+    return out
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -253,6 +285,7 @@ def overview(query: str | None = None) -> dict[str, Any]:
 
     rows.sort(key=lambda r: (not needs(r), r["state"] != "blocked", r["state"] != "working"))
     return {
+        "machine": MACHINE,
         "observed_at": local_iso(snap.observed_at),
         "sessions": rows,
         "needs_amir_count": sum(1 for r in rows if needs(r)),
@@ -339,19 +372,6 @@ def build_app(secret: str):
     return SecretPath(LogCalls(app), secret)
 
 
-def load_env_file(path: str) -> None:
-    """KEY=value lines from the repo's .env, without overriding the environment."""
-    if not os.path.exists(path):
-        return
-    with open(path) as fh:
-        for line in fh:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
 def setup_logging() -> str:
     """Log to a rotating file. The service runs for months, so the log is capped
     at about 30 MB: the current 5 MB file plus five older ones."""
@@ -364,7 +384,6 @@ def setup_logging() -> str:
 
 
 def main() -> None:
-    load_env_file(os.environ.get("AMIRMCP_ENV_FILE") or os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
     log_path = setup_logging()
     secret = os.environ.get("AMIRMCP_SECRET", "")
     if len(secret) < 16:
@@ -372,7 +391,7 @@ def main() -> None:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY must be set (see .env.example)")
     port = int(os.environ.get("AMIRMCP_PORT", "8787"))
-    log.info("starting on 127.0.0.1:%d, logging to %s", port, log_path)
+    log.info("starting on 127.0.0.1:%d for %s, logging to %s", port, MACHINE, log_path)
     # log_config=None sends uvicorn's own messages through the rotating file too.
     uvicorn.run(build_app(secret), host="127.0.0.1", port=port, log_level="warning", log_config=None)
 

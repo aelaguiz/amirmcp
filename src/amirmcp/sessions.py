@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import sqlite3
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -408,20 +409,66 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _process_env(pid: int) -> dict[str, str]:
+    """Another process's environment, where the OS lets us read it (Linux)."""
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as fh:
+            raw = fh.read()
+    except OSError:
+        return {}
+    env = {}
+    for item in raw.split(b"\0"):
+        key, sep, value = item.partition(b"=")
+        if sep:
+            env[key.decode(errors="replace")] = value.decode(errors="replace")
+    return env
+
+
+def _ssh_client(pid: int) -> str | None:
+    """``ip:port`` of the SSH client whose login this process runs under."""
+    conn = _process_env(pid).get("SSH_CONNECTION", "").split()
+    return f"{conn[0]}:{conn[1]}" if len(conn) >= 2 else None
+
+
+def _codex_pids() -> list[int]:
+    proc = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=10)
+    pids = []
+    for line in proc.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and os.path.basename(parts[1].strip()) == "codex":
+            pids.append(int(parts[0]))
+    return pids
+
+
 @dataclass
 class Snapshot:
     sessions: list[Session]
     gaps: list[str]
     observed_at: float
+    # Panes here whose foreground is an SSH session to another machine; the
+    # agents in them run there and are covered by that machine's connector.
+    ssh_panes: list[dict[str, Any]] = field(default_factory=list)
 
 
 def snapshot(recent_hours: float = 24) -> Snapshot:
     now = time.time()
-    panes, gaps = herdr.all_panes()
+    panes, gaps = herdr.all_panes() if herdr.available() else ([], [])
+    # Panes in another machine's Herdr (Amir's Mac) that SSH into this one,
+    # keyed by the SSH client address an agent here sees in SSH_CONNECTION.
+    via_ssh: dict[str, herdr.Pane] = {}
+    for host in [h.strip() for h in os.environ.get("AMIRMCP_HERDR_HOSTS", "").split(",") if h.strip()]:
+        remote, errors = herdr.remote_panes(host)
+        gaps.extend(errors)
+        for pane in remote:
+            for proc in pane.processes:
+                for addr in proc.get("tcp_local") or []:
+                    via_ssh[addr] = pane
     claude_records = claude_process_records()
     labels = codex_account_labels()
     sessions: list[Session] = []
+    ssh_panes: list[dict[str, Any]] = []
     seen_claude_pids: set[int] = set()
+    seen_codex_pids: set[int] = set()
     seen_ids: set[str] = set()
 
     for pane in panes:
@@ -435,18 +482,36 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
                 else:
                     gaps.append(f"Claude process {pid} in {pane.session} {pane.pane_id} has no session record.")
             elif _is_codex(proc) and pid:
-                thread_id = codex_thread_for_pid(pid)
-                rows = codex_threads("id = ?", (thread_id,)) if thread_id else []
-                sessions.append(codex_session(rows[0] if rows else None, pid, pane, labels, now))
+                sessions.append(_codex_for_pid(pid, pane, labels, now))
+                seen_codex_pids.add(pid)
+            elif proc.get("name") == "ssh":
+                ssh_panes.append({"where": pane.location(), "command": proc.get("cmdline") or "ssh"})
     seen_ids.update(s.key for s in sessions)
 
-    # Claude processes running outside Herdr (scheduled routines, other terminals).
+    # Agents running outside this machine's Herdr: in an SSH session from
+    # another machine's Herdr pane, or headless (routines, other terminals).
     for pid, (home, record) in claude_records.items():
         if pid in seen_claude_pids or not _pid_alive(pid):
             continue
-        s = claude_session(home, record, None, now)
+        pane = via_ssh.get(_ssh_client(pid) or "")
+        s = claude_session(home, record, pane, now)
         if s.key not in seen_ids:
-            s.notes.append("Running, but not in any Herdr pane.")
+            if pane is None:
+                s.notes.append("Running, but not in any Herdr pane.")
+            sessions.append(s)
+            seen_ids.add(s.key)
+    for pid in _codex_pids():
+        if pid in seen_codex_pids:
+            continue
+        pane = via_ssh.get(_ssh_client(pid) or "")
+        if pane is None and not codex_thread_for_pid(pid):
+            # Outside a pane, a Codex process with no conversation is plumbing
+            # (the ChatGPT app's app-server and exec-server), not Amir's work.
+            continue
+        s = _codex_for_pid(pid, pane, labels, now)
+        if s.key not in seen_ids:
+            if pane is None:
+                s.notes.append("Running, but not in any Herdr pane.")
             sessions.append(s)
             seen_ids.add(s.key)
 
@@ -488,7 +553,13 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
 
     order = {"blocked": 0, "working": 1, "idle": 2, "unknown": 3, "stopped": 4}
     sessions.sort(key=lambda s: (order.get(s.state, 5), -(s.last_activity or 0)))
-    return Snapshot(sessions=sessions, gaps=gaps, observed_at=now)
+    return Snapshot(sessions=sessions, gaps=gaps, observed_at=now, ssh_panes=ssh_panes)
+
+
+def _codex_for_pid(pid: int, pane: herdr.Pane | None, labels: dict[str, str], now: float) -> Session:
+    thread_id = codex_thread_for_pid(pid)
+    rows = codex_threads("id = ?", (thread_id,)) if thread_id else []
+    return codex_session(rows[0] if rows else None, pid, pane, labels, now)
 
 
 def _claude_cwd(path: str) -> str | None:

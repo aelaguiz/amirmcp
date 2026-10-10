@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import threading
 import time
 from typing import Any
@@ -119,6 +120,7 @@ def build_input(session: Session, now: float, window_chars: int = WINDOW_CHARS) 
     """The facts, Amir's requests, and the recent transcript, as one message."""
     path = session.transcript
     facts = {
+        "machine": os.environ.get("AMIRMCP_MACHINE") or socket.gethostname(),
         "observed_at": local_iso(now),
         "runtime": session.runtime,
         "account": session.account,

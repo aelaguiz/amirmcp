@@ -111,3 +111,24 @@ now waits for the unload); after `kill -9` a new process was serving in 8 s; the
 smoke test passed through the public URL afterwards. Tailscale's own setting
 `TailscaleStartOnLogin` is on, and the Funnel setting is stored by Tailscale, so
 both come back at login. A real reboot has not been tried yet.
+
+## 7. amir-server (after any change to the cross-machine link or its service)
+
+1. On the Mac: `~/workspace/amirmcp/.venv/bin/amirmcp-panes` lists the panes and,
+   on each `ssh home` process, its `tcp_local` address.
+2. Smoke test through `https://home-mcp.fairy-salmon.ts.net/<secret>/mcp`: every
+   tool ok, and each live agent's `where` names the Mac pane (`herdr_on: amir-m5`).
+3. On amir-server: `kill -9` the service's main process; systemd serves again
+   within about 10 s. `loginctl show-user aelaguiz -p Linger` says yes.
+4. Ask Ralph about the home server; the calls show in
+   `~/.local/state/amirmcp/amirmcp.log` with `ua=openai-mcp/1.0.0`.
+
+Results on 2026-10-10:
+
+| Check | Result |
+| --- | --- |
+| Pane match | Both Claude sessions on amir-server matched their Mac panes: pro2 to rustai w1A:p1 by SSH client port 50370, pro6 to rustai w15:p1 by port 50400. |
+| Smoke test, public URL | All tools ok; the summary flagged two decisions waiting on Amir in the subgame session. |
+| Crash | After `kill -9`, a new process was serving in 7 s. |
+| Port 8443 | ChatGPT could not reach 8443 on either machine (`424 Connection failed`, kind network); hence the `home-mcp` node on 443. |
+| Ralph, Work profile | "What agents are running on my home server?" Calls `list_sessions` and two `get_session`; Ralph answered "Plugin works. Two agents on amir-server", naming both panes, the subgame decisions, and that SNG training needs nothing. |

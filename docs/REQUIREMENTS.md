@@ -73,6 +73,12 @@ answers from what is on disk and in Herdr at that moment.
    - Summaries are written by Claude Haiku 5.5 (`claude-haiku-5-5`) and cached
      by transcript position, so asking twice costs nothing new.
 
+## Machines
+
+Added 2026-10-10 at Amir's request: amir-server ("home") runs its own copy,
+connected to the dot as a second plugin. Its agents run in SSH sessions opened
+from Herdr panes on the Mac, and each must be shown with that pane.
+
 ## Connection
 
 - A public HTTPS MCP endpoint (streamable HTTP) the dot can reach, served from
@@ -88,7 +94,6 @@ answers from what is on disk and in Herdr at that moment.
 - Remote control: prompting, interrupting or starting agents.
 - Push notifications when a session finishes or blocks (MCP Events). A later
   addition.
-- Herdr sessions on other machines (amir-server).
 - A permanently running local model. Summaries are on demand through the
   Anthropic API.
 

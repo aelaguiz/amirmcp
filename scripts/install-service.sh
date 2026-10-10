@@ -10,7 +10,7 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f "$repo/.env" ] || { echo "missing $repo/.env (copy .env.example and fill it in)" >&2; exit 1; }
 env_value() { grep "^$1=" "$repo/.env" | tail -1 | cut -d= -f2-; }
 port="$(env_value AMIRMCP_PORT)"; port="${port:-8787}"
-funnel_port="$(env_value AMIRMCP_FUNNEL_PORT)"; funnel_port="${funnel_port:-443}"
+node="$(env_value AMIRMCP_TAILSCALE_NODE)"
 
 (cd "$repo" && uv sync --frozen -q)
 
@@ -42,10 +42,26 @@ Linux)
   echo "unsupported system: $(uname)" >&2; exit 1 ;;
 esac
 
-# Funnel serves https://<machine>.<tailnet>.ts.net[:port]/ from the local port.
-tailscale funnel --bg --https="$funnel_port" "$port" 2>/dev/null \
-  || sudo tailscale funnel --bg --https="$funnel_port" "$port"
-
-host="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
-[ "$funnel_port" = 443 ] && suffix="" || suffix=":$funnel_port"
-echo "connector URL: https://$host$suffix/$(env_value AMIRMCP_SECRET)/mcp"
+# ChatGPT only reaches port 443, and Funnel publishes a whole port. Where this
+# machine's 443 already serves other things, AMIRMCP_TAILSCALE_NODE gives the
+# connector its own Tailscale node (and so its own 443) instead.
+if [ -n "$node" ]; then
+  sock="$HOME/.local/state/amirmcp/tailscale/tailscaled.sock"
+  mkdir -p "$(dirname "$sock")"
+  cp "$repo/deploy/amirmcp-tailscale.service" "$HOME/.config/systemd/user/amirmcp-tailscale.service"
+  systemctl --user daemon-reload
+  systemctl --user enable --now amirmcp-tailscale.service
+  sleep 3
+  if ! tailscale --socket="$sock" status >/dev/null 2>&1; then
+    # Prints a login URL; approve it as the tailnet owner. Then turn off key
+    # expiry for the node in the Tailscale admin so it does not drop in 180 days.
+    tailscale --socket="$sock" up --hostname="$node" --qr=false --timeout=300s
+  fi
+  tailscale --socket="$sock" funnel --bg "$port"
+  host="$(tailscale --socket="$sock" status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+else
+  # Funnel serves https://<machine>.<tailnet>.ts.net/ from the local port.
+  tailscale funnel --bg "$port" 2>/dev/null || sudo tailscale funnel --bg "$port"
+  host="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+fi
+echo "connector URL: https://$host/$(env_value AMIRMCP_SECRET)/mcp"

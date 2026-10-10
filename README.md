@@ -1,13 +1,24 @@
 # amirmcp
 
 A read-only MCP connector that lets Amir's OpenAI dot (Ralph), which runs on
-OpenAI's servers, see the Claude Code and Codex sessions running in his Herdr
-spaces on Amir-M5. From anywhere he can ask "how's the SEO plan going?" or
-"what's waiting on me?" and get an answer grounded in the agents' own
-transcripts, with summaries written by Claude Haiku 5.5.
+OpenAI's servers, see the Claude Code and Codex sessions running on his
+machines, with the Herdr pane each one is in. From anywhere he can ask "how's
+the SEO plan going?" or "what's waiting on me?" and get an answer grounded in
+the agents' own transcripts, with summaries written by Claude Haiku 5.5. It
+never types into a pane or changes a file.
 
-It is installed in the dot as the **Coding sessions** plugin (ChatGPT, BrowserOS
-Work profile, chatgpt.com/plugins). It never types into a pane or changes a file.
+One copy runs on each machine where agents run, and each is its own plugin in
+the dot (ChatGPT, BrowserOS Work profile, chatgpt.com/plugins):
+
+| Machine | ChatGPT plugin | Public URL | Runs as |
+| --- | --- | --- | --- |
+| Amir-M5 (MacBook Pro) | Coding sessions | `https://amir-m5.fairy-salmon.ts.net/<secret>/mcp` | launchd agent `com.amir.amirmcp` |
+| amir-server ("home") | Coding sessions (home server) | `https://home-mcp.fairy-salmon.ts.net/<secret>/mcp` | systemd user services `amirmcp` and `amirmcp-tailscale` |
+
+Agents on amir-server run in SSH sessions opened from Herdr panes on the Mac.
+The server's copy reads the Mac's panes over SSH and matches each agent to its
+pane by the SSH connection, so the dot sees "rustai → subgame, pane w15:p1" for
+an agent running on the server.
 
 - [Requirements](docs/REQUIREMENTS.md): what the dot must be able to do.
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): how it works and why.
@@ -24,33 +35,39 @@ Work profile, chatgpt.com/plugins). It never types into a pane or changes a file
 | `read_history` | A bounded slice of a transcript, paged by cursor. |
 | `search_history` | Find an error, PR, test or decision across transcripts. |
 
-## Run it
+## Run it on a machine
 
-Needs `uv`, `herdr`, and Tailscale with Funnel allowed for this Mac.
+Needs `uv`, Tailscale with Funnel allowed for the machine, and either `herdr`
+on the machine or SSH access to the machine whose Herdr panes SSH into it.
 
 ```bash
-cp .env.example .env          # fill in ANTHROPIC_API_KEY and AMIRMCP_SECRET
-uv sync
-./scripts/install-service.sh  # launchd service + Tailscale Funnel; prints the URL
+git clone https://github.com/aelaguiz/amirmcp ~/workspace/amirmcp && cd ~/workspace/amirmcp
+cp .env.example .env          # key, a new secret, machine name; see the comments
+./scripts/install-service.sh  # service + Tailscale Funnel; prints the URL
 ```
 
-It stays up on its own: launchd starts it at every login and restarts it
-within about 10 seconds if it dies, and Tailscale (set to start at login)
-keeps the Funnel address. The log rotates at 5 MB and keeps five old files.
-The dot can reach it only while this Mac is awake and online.
+Then in ChatGPT: Plugins, Add, Add custom MCP server, with that URL and "No
+authentication", then Connect. ChatGPT only reaches port 443. On a machine whose
+Tailscale 443 already serves other things (amir-server), set
+`AMIRMCP_TAILSCALE_NODE` so the connector gets its own Tailscale node; approve
+its login link once and turn off its key expiry in the Tailscale admin.
 
-The public URL is `https://amir-m5.fairy-salmon.ts.net/<AMIRMCP_SECRET>/mcp`.
-Paths without the secret get a 404. In ChatGPT the plugin is added with
-Plugins, then Add, then Add custom MCP server, with that URL and "No
-authentication".
+Both copies stay up on their own: they start at login (Mac) or boot
+(amir-server), restart within about 10 seconds if they die, and keep their
+Funnel address. Logs rotate at 5 MB and keep five old files. The Mac's copy is
+reachable only while the Mac is awake; amir-server's lists its agents either
+way but shows their Herdr panes only while the Mac is reachable.
+
+| Task | Mac | amir-server |
+| --- | --- | --- |
+| Restart after a code change | `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp` | `systemctl --user restart amirmcp` |
+| Watch calls (the dot shows as `ua=openai-mcp/1.0.0`) | `tail -f ~/Library/Logs/amirmcp/amirmcp.log` | `tail -f ~/.local/state/amirmcp/amirmcp.log` |
+| Stop | `launchctl bootout gui/$(id -u)/com.amir.amirmcp && tailscale funnel --https=443 off` | `systemctl --user disable --now amirmcp amirmcp-tailscale` |
 
 | Task | Command |
 | --- | --- |
-| Restart after a code change | `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp` |
-| Watch calls (the dot shows as `ua=openai-mcp/1.0.0`) | `tail -f ~/Library/Logs/amirmcp/amirmcp.log` |
 | Unit tests | `uv run pytest` |
-| Call every tool like the dot does | `uv run python scripts/smoke.py http://127.0.0.1:8787/<secret>/mcp` |
-| Stop | `launchctl bootout gui/$(id -u)/com.amir.amirmcp && tailscale funnel --https=443 off` |
+| Call every tool like the dot does | `uv run python scripts/smoke.py https://<host>/<secret>/mcp` |
 
-After changing tools, press Refresh on the plugin in ChatGPT so the dot sees
-the new list.
+After changing tools or a server's description, press Refresh on the plugin in
+ChatGPT so the dot sees the new version.

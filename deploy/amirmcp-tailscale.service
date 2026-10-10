@@ -1,0 +1,17 @@
+# A second, unprivileged Tailscale node for the connector on Linux machines
+# where the main node's port 443 already serves other things (amir-server).
+# ChatGPT only reaches port 443, and Funnel publishes a whole port, so the
+# connector gets its own node name and 443 instead of exposing those services.
+# Installed by scripts/install-service.sh when AMIRMCP_TAILSCALE_NODE is set.
+[Unit]
+Description=amirmcp: separate Tailscale node for the connector's public address
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/sbin/tailscaled --tun=userspace-networking --port=0 --statedir=%h/.local/state/amirmcp/tailscale --socket=%h/.local/state/amirmcp/tailscale/tailscaled.sock
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

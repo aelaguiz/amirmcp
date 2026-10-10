@@ -1,7 +1,8 @@
 # Implementation plan: coding-session connector
 
-Status on 2026-10-09: built, running on Amir-M5, and connected to Amir's dot
-(Ralph) as the "Coding sessions" plugin in the BrowserOS Work profile. This plan
+Status on 2026-10-10: running on Amir-M5 (since 2026-10-09) and on amir-server
+(since 2026-10-10), connected to Amir's dot (Ralph) as the "Coding sessions" and
+"Coding sessions (home server)" plugins in the BrowserOS Work profile. This plan
 records how it is built and why, so the next change starts from the real design.
 Requirements are in [REQUIREMENTS.md](REQUIREMENTS.md); tests in
 [TEST_PLAN.md](TEST_PLAN.md).
@@ -26,7 +27,8 @@ Requirements are in [REQUIREMENTS.md](REQUIREMENTS.md); tests in
 | Transcript reader | `src/amirmcp/transcripts.py` | Turns Claude Code JSONL and Codex rollout JSONL into short entries with a byte-offset cursor, reads tails, pages backwards and forwards, and searches. |
 | Summaries | `src/amirmcp/summarize.py` | Builds the brief input (live facts, every request Amir made, recent transcript) and asks `claude-haiku-5-5` for a structured brief. Caches by transcript size and state in `~/.cache/amirmcp/briefs.json`. |
 | MCP server | `src/amirmcp/server.py` | Six read-only tools over streamable HTTP (stateless, JSON responses), the secret-path gate, and request logging. |
-| Service | `deploy/com.amir.amirmcp.plist`, `scripts/install-service.sh` | launchd agent that starts at login and restarts on failure. It runs the project's own `.venv/bin/amirmcp`, so starting at login needs no network; the install script runs `uv sync` first and also turns on Tailscale Funnel. |
+| Service | `deploy/com.amir.amirmcp.plist`, `deploy/amirmcp.service`, `deploy/amirmcp-tailscale.service`, `scripts/install-service.sh` | On the Mac a launchd agent that starts at login; on amir-server a systemd user service that starts at boot (lingering is on). Both restart on failure and run the project's own `.venv/bin/amirmcp`, so starting needs no network; the install script runs `uv sync` first and turns on Tailscale Funnel. |
+| Pane dump | `amirmcp-panes` (`herdr.dump`) | Prints this machine's Herdr panes as JSON, adding the client address (`ip:port`) of every SSH connection in a pane. amir-server runs it on the Mac over SSH. |
 
 ## Pane to session: the part that has to be right
 
@@ -48,6 +50,25 @@ directory. It comes from the process in the pane:
   All Codex accounts share `~/.codex`; the account label comes from matching the
   rollout's `creator_account_id` to AI Manager's selection history in
   `~/.aimgr/local-state.json`, and is blank when that history has no match.
+
+## Agents on amir-server, panes on the Mac
+
+On amir-server ("home" on the tailnet) the agents run in SSH sessions that Amir
+opens from Herdr panes on his Mac; the server has no Herdr. Each SSH connection
+has a client port, and the agent's process on the server carries the same
+address in `SSH_CONNECTION` (for example `100.72.74.74 50370 100.66.11.7 22`).
+So the server's connector:
+
+1. runs `ssh amir-m5 ~/workspace/amirmcp/.venv/bin/amirmcp-panes` (its own
+   key, no agent forwarding), which lists the Mac's panes and, for each `ssh`
+   process, its local `ip:port` from `lsof`;
+2. reads each live agent's `SSH_CONNECTION` from `/proc/<pid>/environ`;
+3. gives the agent the pane whose SSH connection has that address.
+
+`AMIRMCP_HERDR_HOSTS=amir-m5` turns this on. If the Mac is asleep the server's
+agents are still listed, with a gap saying their panes could not be read. The
+Mac's own list names the panes that SSH elsewhere so the dot knows to ask the
+other plugin.
 
 ## Live state
 
@@ -94,8 +115,18 @@ guessing.
 
 ## Connection and access
 
-- Public endpoint by Tailscale Funnel on `amir-m5.fairy-salmon.ts.net:443`, so the
-  URL is stable across restarts and no inbound port is opened.
+- Public endpoints by Tailscale Funnel, so URLs are stable across restarts and
+  no inbound port is opened: `amir-m5.fairy-salmon.ts.net` for the Mac and
+  `home-mcp.fairy-salmon.ts.net` for amir-server.
+- ChatGPT only reaches port 443. Tested on 2026-10-10: the same Mac connector
+  on Funnel port 8443 got ChatGPT's `424 Connection failed (kind: network)`
+  while 443 worked.
+- amir-server's own node (`home.fairy-salmon.ts.net`) already serves other
+  tailnet-only services on 443 (`/`, `/health`, `/mcp/hand_builder`), and Funnel
+  publishes a whole port. So the connector there has its own unprivileged
+  Tailscale node, `home-mcp` (`amirmcp-tailscale` service, userspace networking,
+  state in `~/.local/state/amirmcp/tailscale`), with key expiry turned off in the
+  Tailscale admin. The main node's serve settings are unchanged.
 - Access control is one secret: the first path segment. Any other path is a 404.
   The dot's plugin uses "No authentication", which the dot supports; it cannot
   send API keys or custom headers, and OAuth would be the heavier route the brief
@@ -108,7 +139,7 @@ guessing.
 
 ## Operating it
 
-- Install or restart: `./scripts/install-service.sh`.
+- Install or restart on either machine: `./scripts/install-service.sh`.
 - Restart after a code change: `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp`.
 - Log: `~/Library/Logs/amirmcp/amirmcp.log`, rotated at 5 MB with five old
   files kept (about 30 MB at most), one line per request with the MCP method,
@@ -122,5 +153,4 @@ guessing.
 - MCP Events, so the dot can say "tell me when X finishes": needs protocol
   version `2026-07-28`, `events/list|subscribe|unsubscribe`, stored
   subscriptions and signed webhook delivery.
-- Herdr sessions on amir-server.
 - Remote control (prompting agents) as a separate, explicitly approved tool set.

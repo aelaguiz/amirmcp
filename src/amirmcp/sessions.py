@@ -342,6 +342,36 @@ def _codex_turn_open(path: str) -> bool | None:
     return None
 
 
+def _codex_pending_question(path: str, window: int = 512 * 1024) -> str | None:
+    """The question Codex asked Amir, if no message from him has come since.
+
+    Codex asks with ``request_user_input_async`` and keeps working or waiting;
+    its turn stays open, so neither Herdr nor the turn events show that it is
+    waiting on him. Any message he sends afterwards is taken as the answer.
+    """
+    size = os.path.getsize(path)
+    with open(path, "rb") as fh:
+        fh.seek(max(0, size - window))
+        chunk = fh.read()
+    question = None
+    for raw in chunk.split(b"\n"):
+        if b"request_user_input" not in raw and b'"UserMessage"' not in raw:
+            continue
+        try:
+            payload = json.loads(raw).get("payload") or {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if payload.get("type") == "function_call" and str(payload.get("name", "")).startswith("request_user_input"):
+            try:
+                asked = json.loads(payload.get("arguments") or "{}").get("questions") or []
+            except json.JSONDecodeError:
+                asked = []
+            question = " / ".join(q.get("title") or q.get("question") or "" for q in asked if isinstance(q, dict)) or "a question"
+        elif payload.get("type") == "item_completed" and (payload.get("item") or {}).get("type") == "UserMessage":
+            question = None
+    return question
+
+
 def codex_session(thread: dict[str, Any] | None, pid: int | None, pane: herdr.Pane | None, labels: dict[str, str], now: float) -> Session:
     if thread is None:
         s = Session(
@@ -373,8 +403,11 @@ def codex_session(thread: dict[str, Any] | None, pid: int | None, pane: herdr.Pa
     )
     s.last_activity = os.path.getmtime(path) if exists else (thread.get("updated_at_ms") or 0) / 1000 or None
     turn_open = _codex_turn_open(path) if exists else None
+    question = _codex_pending_question(path) if exists and pid else None
     herdr_status = pane.herdr_status if pane else None
-    if herdr_status == "blocked":
+    if question:
+        s.state, s.state_reason = "blocked", f"Asked Amir and is waiting for his answer: {question}"
+    elif herdr_status == "blocked":
         s.state, s.state_reason = "blocked", "Herdr sees Codex waiting on an approval or question"
     elif herdr_status == "working" or (turn_open and herdr_status not in ("idle", "done")):
         s.state, s.state_reason = "working", f"Turn in progress; last write {ago(s.last_activity, now)}"

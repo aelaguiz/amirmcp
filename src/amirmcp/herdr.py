@@ -31,7 +31,8 @@ def _herdr_bin() -> str:
     )
 
 
-def _run(args: list[str], socket_path: str | None = None) -> dict[str, Any]:
+def run_text(args: list[str], socket_path: str | None = None) -> str:
+    """Run the herdr CLI against one session's socket and return what it prints."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("HERDR_")}
     if socket_path:
         env["HERDR_SOCKET_PATH"] = socket_path
@@ -44,10 +45,14 @@ def _run(args: list[str], socket_path: str | None = None) -> dict[str, Any]:
             env=env,
         )
     except subprocess.TimeoutExpired as exc:
-        raise HerdrError(f"herdr {' '.join(args)} timed out") from exc
+        raise HerdrError(f"herdr {' '.join(args[:2])} timed out") from exc
     if proc.returncode != 0:
         raise HerdrError((proc.stderr or proc.stdout).strip()[-500:])
-    data = json.loads(proc.stdout)
+    return proc.stdout
+
+
+def _run(args: list[str], socket_path: str | None = None) -> dict[str, Any]:
+    data = json.loads(run_text(args, socket_path))
     if isinstance(data, dict) and data.get("error"):
         raise HerdrError(json.dumps(data["error"]))
     return data.get("result", data)

@@ -25,6 +25,10 @@
   <true/>
   <key>ThrottleInterval</key>
   <integer>10</integer>
+  <!-- Someone is waiting on every call; without this launchd runs it at
+       background priority and calls slow to 15 s when the Mac is busy. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
   <!-- Requests go to the rotating ~/Library/Logs/amirmcp/amirmcp.log; this file
        only catches a crash before logging starts. -->
   <key>StandardOutPath</key>

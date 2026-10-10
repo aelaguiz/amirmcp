@@ -1,8 +1,10 @@
 """The MCP server Amir's dot connects to.
 
-Everything here is read-only: it reads Herdr's pane list, the agents' own
-session records, and their transcript files, and asks Claude Haiku 5.5 to
-summarize. It never types into a pane or changes a file.
+Most tools only read: Herdr's pane list, the agents' own session records, and
+their transcript files, with summaries from Claude Haiku 5.5. Three let the dot
+act for Amir in an agent's pane: send_message types a message into the agent's
+input box, press_keys answers a prompt, and read_screen shows what the pane
+shows. They never start, stop or restart agents, and never change a file.
 
 The public endpoint is ``https://<host>/<AMIRMCP_SECRET>/mcp``. Requests whose
 path does not start with the secret get a bare 404. That one secret is the whole
@@ -15,6 +17,7 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -28,7 +31,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import ToolAnnotations
 
-from . import sessions, summarize, transcripts
+from . import control, sessions, summarize, transcripts
 from .sessions import Session, Snapshot, local_iso
 
 log = logging.getLogger("amirmcp")
@@ -58,17 +61,22 @@ LOG_FILE = os.path.expanduser(
 )
 
 INSTRUCTIONS = f"""\
-Read-only view of Amir's coding agents on {MACHINE}: every Claude Code and Codex \
-session running there, with the Herdr pane each one is in, plus ones that stopped \
-recently. Each of Amir's machines has its own Coding sessions plugin; ask each one \
-when he asks about all his work. For "how's X going", call summarize_session; for \
-"what's going on" or "what needs me", call overview; list_sessions finds ids. \
-States: working, blocked (waiting on Amir), idle (finished its turn; not \
-necessarily done), stopped (no process), unknown. Cursors like c123 point into a \
-transcript; cite them and check details with read_history or search_history.\
+Amir's coding agents on {MACHINE}: every Claude Code and Codex session running \
+there, with the Herdr pane each one is in, plus ones that stopped recently. Each \
+of Amir's machines has its own Coding sessions plugin; ask each one when he asks \
+about all his work. For "how's X going", call summarize_session; for "what's going \
+on" or "what needs me", call overview; list_sessions finds ids. States: working, \
+blocked (waiting on Amir), idle (finished its turn; not necessarily done), stopped \
+(no process), unknown. Cursors like c123 point into a transcript; cite them and \
+check details with read_history or search_history. When Amir wants to tell an \
+agent something, send_message types it into the agent's input box as his words; \
+when an agent is showing a question or approval, read_screen shows it and \
+press_keys answers it.\
 """
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
+SENDS = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
+PRESSES = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
 
 mcp = MCPServer("amirmcp", title=f"Coding sessions on {MACHINE}", instructions=INSTRUCTIONS)
 
@@ -291,6 +299,197 @@ def overview(query: str | None = None) -> dict[str, Any]:
         "needs_amir_count": sum(1 for r in rows if needs(r)),
         "gaps": snap.gaps,
     }
+
+
+# ------------------------------------------------------- acting in a pane
+
+CONFIRM_SECONDS = 10
+
+
+def _in_foreground(pid: int) -> bool:
+    """Whether a process is in the foreground of its own terminal (here, an SSH login)."""
+    out = subprocess.run(["ps", "-o", "pgid=,tpgid=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.split()
+    return len(out) == 2 and out[0] == out[1]
+
+
+def _target(s: Session) -> tuple[str | None, control.Target]:
+    """Where to type for this session, after checking the agent is still there."""
+    if s.state == "stopped" or not s.pid:
+        raise ToolError(f"{s.short_id} is not running ({s.state_reason}); there is nothing to type into.")
+    if not s.pane:
+        raise ToolError(f"{s.short_id} is not in a Herdr pane, so there is no screen to type into.")
+    if s.pane.herdr_host:
+        client = sessions._ssh_client(s.pid)
+        if not client or not _in_foreground(s.pid):
+            raise ToolError(f"{s.short_id} is no longer in the front of its SSH session on {MACHINE}; nothing was typed.")
+        return s.pane.herdr_host, control.Target(s.pane.session, s.pane.pane_id, s.runtime, ssh_client=client)
+    return None, control.Target(s.pane.session, s.pane.pane_id, s.runtime, pid=s.pid)
+
+
+def _fresh(ref: str) -> tuple[Session, Snapshot]:
+    """Resolve a session from a new snapshot: about to type, so nothing cached."""
+    with _snap_lock:
+        _snaps.clear()
+    s, snap = _resolve(ref)
+    if s.state == "stopped":
+        raise ToolError(f"{s.short_id} is not running ({s.state_reason}); there is nothing to type into.")
+    return s, snap
+
+
+def _transcript_now(s: Session) -> str | None:
+    if s.transcript or s.runtime != "claude" or not s.session_id:
+        return s.transcript
+    for home in sessions.claude_homes():  # a new session writes its file on the first message
+        found = sessions.claude_transcript(home, s.session_id)
+        if found:
+            return found
+    return None
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _arrived(s: Session, cursor: int, text: str) -> transcripts.Entry | None:
+    path = _transcript_now(s)
+    if not path:
+        return None
+    snippet = _squash(text)[:60]
+    entries, _, _ = transcripts.entries_after(path, s.runtime, cursor, 100)
+    return next((e for e in entries if e.kind == "user" and snippet in _squash(e.text)), None)
+
+
+def _tail_rows(screen: str, n: int = 25) -> str:
+    rows = [r.rstrip() for r in screen.split("\n")]
+    while rows and not rows[-1]:
+        rows.pop()
+    return "\n".join(rows[-n:])
+
+
+def _pane_result(reply: dict[str, Any]) -> dict[str, Any]:
+    if reply.get("ok"):
+        return reply
+    if reply.get("refused"):
+        return {"result": "refused", "reason": reply["refused"], "screen": _tail_rows(reply.get("screen", ""))}
+    raise ToolError(reply.get("error") or "Unknown error reaching the pane.")
+
+
+@mcp.tool(annotations=READ_ONLY)
+def read_screen(session: str) -> dict[str, Any]:
+    """What one agent's Herdr pane shows right now, as text, and whether its
+    input box is ready for a message. Use it to see a question, menu, approval
+    or error the agent is showing before answering it with press_keys, or to
+    check what a message did.
+
+    session: an id from list_sessions or a loose name.
+    """
+    log.info("tool read_screen session=%r", session)
+    s, snap = _fresh(session)
+    host, target = _target(s)
+    reply = _pane_result(control.run_on(host, {"op": "screen", "target": target.__dict__}))
+    return {
+        "session": s.short_id,
+        "where": s.pane.location() if s.pane else None,
+        "state": s.state,
+        "state_reason": s.state_reason,
+        "input_box": reply.get("input_box"),
+        "unsent_text": reply.get("draft") or None,
+        "screen": _tail_rows(reply.get("screen", ""), 60),
+    }
+
+
+@mcp.tool(annotations=SENDS)
+def send_message(session: str, text: str) -> dict[str, Any]:
+    """Send Amir's message to a coding agent, typed into its input box as if he
+    had typed it at his desk, prefixed "From Amir, via ChatGPT:". The agent
+    takes it as his words and acts on it, so send what Amir asked you to send,
+    and say it the way he would.
+
+    It works whether the agent is idle or mid-turn (a mid-turn message is read
+    at the agent's next step). A Codex agent that asked a question takes the
+    message as the answer. It refuses, without typing anything, when the agent
+    is showing a prompt or menu (answer that with press_keys after read_screen),
+    when Amir has unsent text in the input box, or when the agent is no longer
+    running in its pane.
+
+    Result: "delivered" when the agent's own transcript shows the message
+    (with its cursor), "queued" when the screen shows it waiting for the
+    agent's next step, "refused" with the reason and screen, or "not
+    confirmed" with the screen. Never resend because a result was not
+    confirmed; read the screen and history first, since a second copy would
+    reach the agent too.
+
+    session: an id from list_sessions or a loose name.
+    text: the message. Several lines and long messages are fine.
+    """
+    log.info("tool send_message session=%r chars=%d", session, len(text))
+    if not text.strip():
+        raise ToolError("The message is empty.")
+    s, snap = _fresh(session)
+    host, target = _target(s)
+    if s.state == "blocked" and not (s.runtime == "codex" and s.transcript and sessions._codex_pending_question(s.transcript)):
+        reply = control.run_on(host, {"op": "screen", "target": target.__dict__})
+        return {
+            "session": s.short_id,
+            "result": "refused",
+            "reason": f"The agent is waiting on a prompt ({s.state_reason}). Answer it with press_keys; nothing was typed.",
+            "screen": _tail_rows(reply.get("screen", "")),
+        }
+    path = _transcript_now(s)
+    # entries_after skips the line its cursor is on, so point at the last byte
+    # already written: the next line is the first one checked.
+    cursor = max(os.path.getsize(path) - 1, 0) if path else 0
+    reply = _pane_result(control.run_on(host, {"op": "send", "target": target.__dict__, "text": text}))
+    if reply.get("result") == "refused":
+        return {"session": s.short_id, **reply}
+    deadline = time.time() + CONFIRM_SECONDS
+    while time.time() < deadline:
+        time.sleep(1)
+        entry = _arrived(s, cursor, text)
+        if entry:
+            log.info("send_message delivered to %s at c%d", s.short_id, entry.cursor)
+            return {"session": s.short_id, "result": "delivered", "cursor": f"c{entry.cursor}", "at": transcripts.local_ts(entry.ts)}
+    look = control.run_on(host, {"op": "screen", "target": target.__dict__})
+    screen = look.get("screen", "")
+    lead = control.LEAD_IN.strip()
+    if look.get("input_box") == "draft" and lead in (look.get("draft") or ""):
+        result, detail = "not confirmed", "The message is in the input box but was not submitted."
+    elif lead in screen and look.get("input_box") == "ready":
+        result, detail = "queued", "The agent is mid-step; the screen shows the message waiting for its next step."
+    else:
+        result, detail = "not confirmed", f"Typed, but the transcript does not show it after {CONFIRM_SECONDS} s."
+    log.info("send_message %s to %s", result, s.short_id)
+    return {"session": s.short_id, "result": result, "detail": detail, "screen": _tail_rows(screen)}
+
+
+@mcp.tool(annotations=PRESSES)
+def press_keys(session: str, keys: list[str], text: str | None = None) -> dict[str, Any]:
+    """Press keys in an agent's pane, then optionally type text and press
+    Enter, to answer a question, menu, permission or approval prompt the way
+    Amir would at his keyboard, or to stop a turn with esc. Read the screen
+    first (read_screen) so you know what each key will do, and press only what
+    Amir chose. Returns the screen afterwards.
+
+    Typical answers: a Claude question or approval takes the option's number
+    ("2"); its "Type something" option takes that option's number and then
+    text; a Claude review screen takes "1" to submit. A Codex command approval
+    takes "y", "p" or "esc". Menus also take "up", "down" and "enter". A
+    Codex question needs no keys: send_message answers it.
+
+    session: an id from list_sessions or a loose name.
+    keys: key names in order, e.g. ["2"], ["down", "enter"], ["esc"],
+    ["shift+tab"]. May be empty when only text is needed.
+    text: typed after the keys, followed by Enter.
+    """
+    log.info("tool press_keys session=%r keys=%r text_chars=%d", session, keys, len(text or ""))
+    if not keys and not text:
+        raise ToolError("Give keys, text, or both.")
+    s, snap = _fresh(session)
+    host, target = _target(s)
+    reply = _pane_result(control.run_on(host, {"op": "keys", "target": target.__dict__, "keys": keys, "text": text}))
+    if reply.get("result") == "refused":
+        return {"session": s.short_id, **reply}
+    return {"session": s.short_id, "pressed": keys, "typed": bool(text), "screen": _tail_rows(reply.get("screen", ""), 40)}
 
 
 class SecretPath:

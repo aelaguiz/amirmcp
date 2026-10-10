@@ -1,0 +1,40 @@
+  [0m[38;2;99;168;248mWelcome to the part where the idea gets interesting.[0m
+
+
+[0m[1m[2m› [0mCreate a file named approval_test.txt containing PAPA using the shell command: echo PAPA > approval_test.txt
+
+
+[0m[2m• [0mI’ll create [0m[38;2;166;227;161mapproval_test.txt [0mcontaining [0m[38;2;166;227;161mPAPA [0musing that command.
+ 
+[0m[38;5;2m✔ [0mYou [0m[1mapproved [0mcodex to run [0m[2mecho PAPA > approval_test.txt[0m[1m this time[0m
+
+[0m[1m[38;5;2m•[0m [0m[1mRan[0m [0m[38;2;137;180;250mecho[0m[38;2;205;214;244m PAPA [0m[38;2;148;226;213m>[0m[38;2;205;214;244m approval_test.txt[0m
+[0m[2m  └ (no output)[0m
+ 
+[0m[2m• [0mCreated [0m[38;2;166;227;161mapproval_test.txt [0mcontaining [0m[38;2;166;227;161mPAPA[0m.
+ 
+[0m[2m  Worked for 23s • 9:29 AM                                                                                              [0m
+
+ 
+[0m[1m[2m› [0mRun the shell command: echo ZULU > approval_two.txt
+ 
+
+[0m[2m• [0mI’ll create [0m[38;2;166;227;161mapproval_two.txt [0mcontaining [0m[38;2;166;227;161mZULU[0m.
+ 
+[0m[1m[38;2;138;138;138m• [0m[1mRunning [0m[38;2;137;180;250mecho[0m[38;2;205;214;244m ZULU [0m[38;2;148;226;213m>[0m[38;2;205;214;244m approval_two.txt[0m
+
+ 
+  [0m[1mWould you like to run the following command?[0m
+
+  Environment: [0m[1mlocal[0m
+
+  Reason: [0m[3mAllow creating approval_two.txt containing ZULU in the current directory?[0m
+
+  $ [0m[38;2;137;180;250mecho[0m[38;2;205;214;244m ZULU [0m[38;2;148;226;213m>[0m[38;2;205;214;244m approval_two.txt[0m
+ 
+
+[0m[1m[7m› 1. Yes, proceed (y)                                                                                                   [0m
+  2. Yes, and don't ask again for commands that start with `echo ZULU > approval_two.txt` ([0m[1mp[0m)
+  3. No, and tell Codex what to do differently ([0m[1mesc[0m)
+
+  [0m[2mPress [0m[1menter[0m[2m to confirm or [0m[1mesc[0m[2m to cancel                                                                               [0m

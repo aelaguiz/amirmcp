@@ -2,9 +2,11 @@
 
     uv run python scripts/smoke.py http://127.0.0.1:8787/<secret>/mcp
     uv run python scripts/smoke.py https://<public-host>/<secret>/mcp --overview
+    uv run python scripts/smoke.py <url> --send amirmcp-lab:w1:p1
 
 It talks to the server exactly as the dot does (MCP over streamable HTTP), so a
-pass here means the tools work end to end against live sessions.
+pass here means the tools work end to end against live sessions. It only reads,
+unless --send names a test agent to send one message to.
 """
 
 from __future__ import annotations
@@ -29,12 +31,13 @@ def show(name: str, result, started: float) -> dict:
     return data
 
 
-async def run(url: str, with_overview: bool) -> None:
+async def run(url: str, with_overview: bool, send_to: str | None) -> None:
     async with Client(url, read_timeout_seconds=300) as client:
         tools = await client.list_tools()
         names = sorted(t.name for t in tools.tools)
         print("tools:", ", ".join(names))
-        assert all(t.annotations and t.annotations.read_only_hint for t in tools.tools), "every tool must be read-only"
+        acting = {t.name for t in tools.tools if not (t.annotations and t.annotations.read_only_hint)}
+        assert acting == {"send_message", "press_keys"}, f"only the two pane tools may act, got {acting}"
 
         t = time.time()
         listed = show("list_sessions", await client.call_tool("list_sessions", {}), t)
@@ -69,6 +72,17 @@ async def run(url: str, with_overview: bool) -> None:
         print("     status:", brief.get("brief", {}).get("status", brief.get("error")))
         print("     needs Amir:", brief.get("brief", {}).get("needs_amir"))
 
+        in_pane = [s for s in live if isinstance(s["where"], dict)]
+        if in_pane:
+            t = time.time()
+            shown = show("read_screen", await client.call_tool("read_screen", {"session": in_pane[0]["id"]}), t)
+            print("     input box:", shown["input_box"], "| last line:", shown["screen"].strip().splitlines()[-1][:80])
+
+        if send_to:
+            t = time.time()
+            sent = show("send_message", await client.call_tool("send_message", {"session": send_to, "text": "Smoke test: reply with exactly SMOKE OK."}), t)
+            print("     result:", sent["result"], sent.get("cursor") or sent.get("detail") or sent.get("reason"))
+
         if with_overview:
             t = time.time()
             ov = show("overview", await client.call_tool("overview", {}), t)
@@ -81,8 +95,9 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("url")
     parser.add_argument("--overview", action="store_true", help="also run the overview tool (summarizes every live session)")
+    parser.add_argument("--send", metavar="SESSION", help="send one test message to this (test) agent")
     args = parser.parse_args()
-    asyncio.run(run(args.url, args.overview))
+    asyncio.run(run(args.url, args.overview, args.send))
 
 
 if __name__ == "__main__":

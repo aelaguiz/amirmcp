@@ -331,9 +331,9 @@ def _in_foreground(pid: int) -> bool:
 def _target(s: Session) -> tuple[str | None, control.Target]:
     """Where to type for this session, after checking the agent is still there."""
     if s.state == "stopped" or not s.pid:
-        raise ToolError(f"{s.short_id} is not running ({s.state_reason}); there is nothing to type into.")
+        raise ToolError(f"{s.short_id} is not running ({s.state_reason}); it has no live pane.")
     if not s.pane:
-        raise ToolError(f"{s.short_id} is not in a Herdr pane, so there is no screen to type into.")
+        raise ToolError(f"{s.short_id} is not in a Herdr pane, so there is no screen.")
     if s.pane.herdr_host:
         client = sessions._ssh_client(s.pid)
         if not client or not _in_foreground(s.pid):
@@ -348,7 +348,7 @@ def _fresh(ref: str) -> tuple[Session, Snapshot]:
         _snaps.clear()
     s, snap = _resolve(ref)
     if s.state == "stopped":
-        raise ToolError(f"{s.short_id} is not running ({s.state_reason}); there is nothing to type into.")
+        raise ToolError(f"{s.short_id} is not running ({s.state_reason}); it has no live pane.")
     return s, snap
 
 
@@ -394,8 +394,7 @@ def _pane_result(reply: dict[str, Any]) -> dict[str, Any]:
 def read_screen(session: str) -> dict[str, Any]:
     """What one agent's Herdr pane shows right now, as text, and whether its
     input box is ready for a message. Use it to see a question, menu, approval
-    or error the agent is showing before answering it with press_keys, or to
-    check what a message did.
+    or error the agent is showing, or to check what a message did.
 
     session: an id from list_sessions or a loose name.
     """

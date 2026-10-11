@@ -85,6 +85,13 @@ added sending (requirement 6).
    - Works the same for agents on amir-server running in a Mac pane's SSH
      session. Design and experiments: [SENDING_TO_AGENTS.md](SENDING_TO_AGENTS.md).
 
+## Grok Bot, read-only
+
+Added 2026-10-11 at Amir's request: his Grok Bot reads the same sessions, with
+the reading tools only. A custom connector in Grok Bot reaches every Bot on his
+account (38 of them, many on schedules), so for now none of them may type into
+an agent.
+
 ## Machines
 
 Added 2026-10-10 at Amir's request: amir-server ("home") runs its own copy,

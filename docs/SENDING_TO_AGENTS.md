@@ -127,6 +127,8 @@ reported as waiting on Amir, with the question, instead of idle.
   that would change.
 - The connector never starts, stops or restarts agents, and never answers a
   prompt on its own. Every keystroke comes from a tool call Ralph made.
+- Grok Bot cannot send (Amir, 2026-10-11). Its address serves only the
+  reading tools, because a Grok Bot connector reaches every Bot on his account.
 
 ## Tests
 

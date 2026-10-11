@@ -9,6 +9,11 @@ Haiku 5.5, then say "tell it to go ahead" and Ralph types that into the
 agent's input box. It never starts, stops or restarts agents, and never changes
 a file.
 
+Amir's Grok Bot reads the same sessions through a read-only address (since
+2026-10-11): the reading tools only, no `send_message` or
+`press_keys`. Grok Bot's custom connectors reach every Bot on his account, so
+none of them can type into an agent.
+
 One copy runs on each machine where agents run, and each is its own plugin in
 the dot (ChatGPT, BrowserOS Work profile, chatgpt.com/plugins):
 
@@ -16,6 +21,12 @@ the dot (ChatGPT, BrowserOS Work profile, chatgpt.com/plugins):
 | --- | --- | --- | --- |
 | Amir-M5 (MacBook Pro) | Coding sessions | `https://amir-m5.fairy-salmon.ts.net/<secret>/mcp` | launchd agent `com.amir.amirmcp` |
 | amir-server ("home") | Coding sessions (home server) | `https://home-mcp.fairy-salmon.ts.net/<secret>/mcp` | systemd user services `amirmcp` and `amirmcp-tailscale` |
+
+In Grok Bot the Mac's connector is the custom plugin "Coding sessions
+(Amir-M5)" at `https://amir-m5.fairy-salmon.ts.net/<read-secret>/mcp`, where
+`<read-secret>` is `AMIRMCP_READ_SECRET` from that machine's `.env`. Grok Bot
+has no settings form for custom servers on a personal account; ask a Bot in
+chat to add one (Grok Chief did).
 
 Agents on amir-server run in SSH sessions opened from Herdr panes on the Mac.
 The server's copy reads the Mac's panes over SSH and matches each agent to its
@@ -52,7 +63,7 @@ on the machine or SSH access to the machine whose Herdr panes SSH into it.
 
 ```bash
 git clone https://github.com/aelaguiz/amirmcp ~/workspace/amirmcp && cd ~/workspace/amirmcp
-cp .env.example .env          # key, a new secret, machine name; see the comments
+cp .env.example .env          # key, secrets, machine name; see the comments
 ./scripts/install-service.sh  # service + Tailscale Funnel; prints the URL
 ```
 

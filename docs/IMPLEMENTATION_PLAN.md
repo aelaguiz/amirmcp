@@ -26,7 +26,7 @@ Requirements are in [REQUIREMENTS.md](REQUIREMENTS.md); tests in
 | Session map | `src/amirmcp/sessions.py` | Ties each pane to the exact agent session from the running process, works out live state, and adds sessions running outside Herdr or stopped recently. |
 | Transcript reader | `src/amirmcp/transcripts.py` | Turns Claude Code JSONL and Codex rollout JSONL into short entries with a byte-offset cursor, reads tails, pages backwards and forwards, and searches. |
 | Summaries | `src/amirmcp/summarize.py` | Builds the brief input (live facts, every request Amir made, recent transcript) and asks `claude-haiku-5-5` for a structured brief. Caches by transcript size and state in `~/.cache/amirmcp/briefs.json`. |
-| MCP server | `src/amirmcp/server.py` | Six read-only tools and three that act in a pane, over streamable HTTP (stateless, JSON responses), the secret-path gate, and request logging. |
+| MCP server | `src/amirmcp/server.py` | Seven tools that read and two that act in a pane, over streamable HTTP (stateless, JSON responses), the secret-path gate, and request logging. A second server with only the reading tools answers under the read secret. |
 | Pane control | `src/amirmcp/control.py`, `amirmcp-pane` | Types into an agent's Herdr pane only when the agent is in front and its input box is empty, and reads the screen. amir-server runs `amirmcp-pane` on the Mac over SSH. See [SENDING_TO_AGENTS.md](SENDING_TO_AGENTS.md). |
 | Service | `deploy/com.amir.amirmcp.plist`, `deploy/amirmcp.service`, `deploy/amirmcp-tailscale.service`, `scripts/install-service.sh` | On the Mac a launchd agent that starts at login; on amir-server a systemd user service that starts at boot (lingering is on). Both restart on failure and run the project's own `.venv/bin/amirmcp`, so starting needs no network; the install script runs `uv sync` first and turns on Tailscale Funnel. |
 | Pane dump | `amirmcp-panes` (`herdr.dump`) | Prints this machine's Herdr panes as JSON, adding the client address (`ip:port`) of every SSH connection in a pane. amir-server runs it on the Mac over SSH. |
@@ -139,6 +139,13 @@ guessing.
   asked to avoid.
 - The secret lives in `.env` (gitignored; the repo is public). Rotating it means
   a new `AMIRMCP_SECRET`, a service restart, and editing the plugin's URL.
+- A second secret, `AMIRMCP_READ_SECRET`, is the first path segment of the
+  read-only address Grok Bot uses. Under it the connector serves the reading
+  tools only, so `send_message` and `press_keys` are unknown tools there, and
+  the full secret never leaves ChatGPT. Grok Bot can add custom headers, but
+  the path secret works for both readers and keeps one mechanism. The log
+  marks each request `endpoint=full` or `endpoint=read-only`; Grok Bot calls
+  as `ua=Cursor/1.0.0` from Amazon addresses.
 - Alternative kept in reserve: OpenAI's Secure MCP Tunnel (`tunnel-client`)
   avoids any public address but needs an OpenAI Platform tunnel tied to the
   ChatGPT workspace.
@@ -155,7 +162,9 @@ guessing.
   tool, time, caller address and user agent (`openai-mcp/1.0.0` is the dot).
 - Stop: `launchctl bootout gui/$(id -u)/com.amir.amirmcp` and
   `tailscale funnel --https=443 off`.
-- After changing tools, press Refresh on the plugin in ChatGPT.
+- After changing tools, press Refresh on the plugin in ChatGPT. Grok Bot keeps
+  the tool descriptions it fetched when the server was added until it fetches
+  them again.
 
 ## Later, not now
 

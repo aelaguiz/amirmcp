@@ -103,6 +103,17 @@ Results on 2026-10-09, BrowserOS Work profile, Ralph at `chatgpt.com/dots/home`:
 
 Both answers matched `list_sessions` and the session's transcript.
 
+Grok Bot, read-only address, 2026-10-11 (Grok Bot 0.66.0 desktop app, Grok
+Chief, driven in the background through macOS accessibility):
+
+| Step | Calls that reached the connector (`ua=Cursor/1.0.0`, `endpoint=read-only`) | Grok Chief's answer |
+| --- | --- | --- |
+| "Please add a custom MCP server ... it only reads" | `initialize`, `tools/list` | "'Coding sessions (Amir-M5)' is added and connected, with 7 tools, all read-only", listing each one. |
+| "What is going on in my coding sessions on the MacBook right now, and does any of them need me?" | `overview` (52 s) | "44 sessions on the MacBook: 22 are working, and 22 are idle", then the seven waiting on Amir by name, e.g. "Cratejoy Shopify sync release. This needs a yes or no on shipping release 5." |
+
+`send_message` on the read-only address returns "Unknown tool: send_message"
+(local MCP client, same day).
+
 ## 6. Service resilience (after changing the service setup)
 
 - Rerun `./scripts/install-service.sh` while the service is up: it replaces it

@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 
-from amirmcp import herdr, sessions
+from amirmcp import herdr, server, sessions
 from amirmcp.server import SecretPath
 from amirmcp.sessions import Session, Snapshot
 
@@ -77,12 +77,15 @@ def test_find_by_id_pane_and_name():
 def test_secret_path_gate():
     seen = []
 
-    async def app(scope, receive, send):
-        seen.append(scope["path"])
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-        await send({"type": "http.response.body", "body": b"ok"})
+    def app(name):
+        async def serve(scope, receive, send):
+            seen.append((name, scope["path"]))
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
 
-    gate = SecretPath(app, "s3cret-value-long-enough")
+        return serve
+
+    gate = SecretPath({"s3cret-value-long-enough": app("full"), "read-secret-long-enough": app("read")})
 
     def call(path):
         sent = []
@@ -100,7 +103,17 @@ def test_secret_path_gate():
     assert call("/wrong/mcp") == 404
     assert call("/s3cret-value-long-enoughX/mcp") == 404
     assert call("/s3cret-value-long-enough/mcp") == 200
-    assert seen == ["/mcp"]
+    assert call("/read-secret-long-enough/mcp") == 200
+    assert seen == [("full", "/mcp"), ("read", "/mcp")]
+
+
+def test_read_secret_reaches_only_the_reading_tools():
+    """Grok Bot's endpoint lists the reading tools and nothing that types into a pane."""
+    full = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    read = {t.name: t for t in asyncio.run(server.mcp_read.list_tools())}
+    assert set(full) - set(read) == {"send_message", "press_keys"}
+    assert all(t.annotations.read_only_hint for t in read.values())
+    assert "send_message" not in server.mcp_read.instructions
 
 
 def test_agent_in_ssh_session_gets_the_remote_pane(tmp_path, monkeypatch):

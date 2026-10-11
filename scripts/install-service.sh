@@ -65,3 +65,4 @@ else
   host="$(tailscale status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
 fi
 echo "connector URL: https://$host/$(env_value AMIRMCP_SECRET)/mcp"
+[ -z "$(env_value AMIRMCP_READ_SECRET)" ] || echo "read-only URL: https://$host/$(env_value AMIRMCP_READ_SECRET)/mcp"

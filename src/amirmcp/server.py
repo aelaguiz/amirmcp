@@ -8,11 +8,14 @@ shows. They never start, stop or restart agents, and never change a file.
 
 The public endpoint is ``https://<host>/<AMIRMCP_SECRET>/mcp``. Requests whose
 path does not start with the secret get a bare 404. That one secret is the whole
-access control, as the capability brief asked.
+access control, as the capability brief asked. A second secret,
+``AMIRMCP_READ_SECRET``, serves the same reading tools without the three that
+act, for readers Amir has not trusted to type into his agents (Grok Bot).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -30,6 +33,7 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import ToolAnnotations
+from starlette.applications import Starlette
 
 from . import control, sessions, summarize, transcripts
 from .sessions import Session, Snapshot, local_iso
@@ -60,7 +64,7 @@ LOG_FILE = os.path.expanduser(
     "~/Library/Logs/amirmcp/amirmcp.log" if sys.platform == "darwin" else "~/.local/state/amirmcp/amirmcp.log"
 )
 
-INSTRUCTIONS = f"""\
+READ_INSTRUCTIONS = f"""\
 Amir's coding agents on {MACHINE}: every Claude Code and Codex session running \
 there, with the Herdr pane each one is in, plus ones that stopped recently. Each \
 of Amir's machines has its own Coding sessions plugin; ask each one when he asks \
@@ -68,17 +72,29 @@ about all his work. For "how's X going", call summarize_session; for "what's goi
 on" or "what needs me", call overview; list_sessions finds ids. States: working, \
 blocked (waiting on Amir), idle (finished its turn; not necessarily done), stopped \
 (no process), unknown. Cursors like c123 point into a transcript; cite them and \
-check details with read_history or search_history. When Amir wants to tell an \
-agent something, send_message types it into the agent's input box as his words; \
-when an agent is showing a question or approval, read_screen shows it and \
-press_keys answers it.\
+check details with read_history or search_history.\
 """
+INSTRUCTIONS = (
+    READ_INSTRUCTIONS
+    + " When Amir wants to tell an agent something, send_message types it into the agent's input box as his"
+    " words; when an agent is showing a question or approval, read_screen shows it and press_keys answers it."
+)
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 SENDS = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=False)
 PRESSES = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=False)
 
 mcp = MCPServer("amirmcp", title=f"Coding sessions on {MACHINE}", instructions=INSTRUCTIONS)
+# The same reading tools without send_message and press_keys, served under the
+# read secret.
+mcp_read = MCPServer("amirmcp", title=f"Coding sessions on {MACHINE}", instructions=READ_INSTRUCTIONS)
+
+
+def read_tool(fn):
+    """Register a tool that only reads on both servers."""
+    for server in (mcp, mcp_read):
+        server.tool(annotations=READ_ONLY)(fn)
+    return fn
 
 _snap_lock = threading.Lock()
 _snaps: dict[bool, Snapshot] = {}
@@ -124,7 +140,7 @@ def _need_transcript(s: Session) -> str:
     return s.transcript
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def list_sessions(query: str | None = None, include_stopped: bool = False) -> dict[str, Any]:
     """List Amir's coding sessions: each Claude Code or Codex agent, which Herdr
     session, workspace and pane it runs in, its AI Manager account, project
@@ -157,7 +173,7 @@ def list_sessions(query: str | None = None, include_stopped: bool = False) -> di
     return out
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def get_session(session: str, recent: int = 15) -> dict[str, Any]:
     """Everything about one session right now: where it runs, live state and the
     reason, Amir's requests in it, and its most recent transcript entries.
@@ -176,7 +192,7 @@ def get_session(session: str, recent: int = 15) -> dict[str, Any]:
     return out
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def read_history(
     session: str,
     after_cursor: int | None = None,
@@ -207,7 +223,7 @@ def read_history(
     return {"session": s.short_id, "state": s.state, "transcript": path, **result}
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def search_history(query: str, session: str | None = None, limit: int = 20) -> dict[str, Any]:
     """Find a task, error, decision, test, PR or file in transcripts, with the
     entry just before and after each hit for context.
@@ -233,7 +249,7 @@ def search_history(query: str, session: str | None = None, limit: int = 20) -> d
     return {"query": query, "searched_sessions": len(targets), "hits": results, "truncated": len(results) >= limit}
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def summarize_session(session: str, refresh: bool = False) -> dict[str, Any]:
     """A status brief for one session, written by Claude Haiku 5.5 from its live
     state, Amir's requests and recent transcript: status, objective, progress
@@ -250,7 +266,7 @@ def summarize_session(session: str, refresh: bool = False) -> dict[str, Any]:
     return {"where": s.pane.location() if s.pane else "not in a Herdr pane", "state": s.state, "state_reason": s.state_reason, **out}
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def overview(query: str | None = None) -> dict[str, Any]:
     """One line per running session on what it is doing and whether it needs
     Amir, sessions needing him first. Uses cached Haiku briefs where nothing
@@ -374,7 +390,7 @@ def _pane_result(reply: dict[str, Any]) -> dict[str, Any]:
     raise ToolError(reply.get("error") or "Unknown error reaching the pane.")
 
 
-@mcp.tool(annotations=READ_ONLY)
+@read_tool
 def read_screen(session: str) -> dict[str, Any]:
     """What one agent's Herdr pane shows right now, as text, and whether its
     input box is ready for a message. Use it to see a question, menu, approval
@@ -493,29 +509,27 @@ def press_keys(session: str, keys: list[str], text: str | None = None) -> dict[s
 
 
 class SecretPath:
-    """Serve the MCP app only under /<secret>/; everything else is a 404."""
+    """Serve each MCP app only under /<its secret>/; everything else is a 404."""
 
-    def __init__(self, app, secret: str):
-        self.app = app
-        self.prefix = f"/{secret}"
+    def __init__(self, apps: dict[str, Any]):
+        self.apps = {f"/{secret}": app for secret, app in apps.items()}
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            return await self.app(scope, receive, send)
         path = scope.get("path", "")
-        if path != self.prefix and not path.startswith(self.prefix + "/"):
-            await send({"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]})
-            await send({"type": "http.response.body", "body": b"not found"})
-            return
-        scope = dict(scope, path=path[len(self.prefix) :] or "/", root_path=scope.get("root_path", "") + self.prefix)
-        return await self.app(scope, receive, send)
+        for prefix, app in self.apps.items():
+            if path == prefix or path.startswith(prefix + "/"):
+                scope = dict(scope, path=path[len(prefix) :] or "/", root_path=scope.get("root_path", "") + prefix)
+                return await app(scope, receive, send)
+        await send({"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]})
+        await send({"type": "http.response.body", "body": b"not found"})
 
 
 class LogCalls:
     """Log each request: who sent it, the JSON-RPC method (and tool), status, time."""
 
-    def __init__(self, app):
+    def __init__(self, app, endpoint: str):
         self.app = app
+        self.endpoint = endpoint
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -549,7 +563,7 @@ class LogCalls:
         except (ValueError, AttributeError):
             method = "?"
         log.info(
-            "%s %s %s -> %s in %.2fs from=%s ua=%s",
+            "%s %s %s -> %s in %.2fs from=%s ua=%s endpoint=%s",
             scope.get("method"),
             scope.get("path"),
             method,
@@ -557,18 +571,41 @@ class LogCalls:
             time.time() - started,
             headers.get("x-forwarded-for") or (scope.get("client") or ["?"])[0],
             headers.get("user-agent", "")[:60],
+            self.endpoint,
         )
 
 
-def build_app(secret: str):
-    app = mcp.streamable_http_app(
-        stateless_http=True,
-        json_response=True,
-        # The secret path is the access control; Host/Origin checks would only
-        # reject the public hostname the dot uses.
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
-    )
-    return SecretPath(LogCalls(app), secret)
+def build_app(secret: str, read_secret: str | None = None):
+    """The full tools under the secret, and the reading tools under the read secret."""
+    servers = {secret: (mcp, "full")}
+    if read_secret:
+        servers[read_secret] = (mcp_read, "read-only")
+    apps = {
+        key: LogCalls(
+            server.streamable_http_app(
+                stateless_http=True,
+                json_response=True,
+                # The secret path is the access control; Host/Origin checks would
+                # only reject the public hostname the dot uses.
+                transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+            ),
+            endpoint,
+        )
+        for key, (server, endpoint) in servers.items()
+    }
+
+    # Each app's own lifespan starts its session manager, but a mounted app's
+    # lifespan never runs, so start them all here.
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        async with contextlib.AsyncExitStack() as stack:
+            for server, _ in servers.values():
+                await stack.enter_async_context(server.session_manager.run())
+            yield
+
+    app = Starlette(lifespan=lifespan)
+    app.mount("/", SecretPath(apps))
+    return app
 
 
 def setup_logging() -> str:
@@ -587,12 +624,21 @@ def main() -> None:
     secret = os.environ.get("AMIRMCP_SECRET", "")
     if len(secret) < 16:
         raise SystemExit("AMIRMCP_SECRET must be set to at least 16 characters (see .env.example)")
+    read_secret = os.environ.get("AMIRMCP_READ_SECRET", "")
+    if read_secret and (len(read_secret) < 16 or read_secret == secret):
+        raise SystemExit("AMIRMCP_READ_SECRET must be at least 16 characters and differ from AMIRMCP_SECRET")
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY must be set (see .env.example)")
     port = int(os.environ.get("AMIRMCP_PORT", "8787"))
-    log.info("starting on 127.0.0.1:%d for %s, logging to %s", port, MACHINE, log_path)
+    log.info(
+        "starting on 127.0.0.1:%d for %s, read-only endpoint %s, logging to %s",
+        port,
+        MACHINE,
+        "on" if read_secret else "off",
+        log_path,
+    )
     # log_config=None sends uvicorn's own messages through the rotating file too.
-    uvicorn.run(build_app(secret), host="127.0.0.1", port=port, log_level="warning", log_config=None)
+    uvicorn.run(build_app(secret, read_secret), host="127.0.0.1", port=port, log_level="warning", log_config=None)
 
 
 if __name__ == "__main__":

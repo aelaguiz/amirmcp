@@ -37,7 +37,9 @@ async def run(url: str, with_overview: bool, send_to: str | None) -> None:
         names = sorted(t.name for t in tools.tools)
         print("tools:", ", ".join(names))
         acting = {t.name for t in tools.tools if not (t.annotations and t.annotations.read_only_hint)}
-        assert acting == {"send_message", "press_keys"}, f"only the two pane tools may act, got {acting}"
+        # The read-only endpoint (AMIRMCP_READ_SECRET) has neither pane tool.
+        assert acting in ({"send_message", "press_keys"}, set()), f"only the two pane tools may act, got {acting}"
+        assert not (send_to and not acting), "--send needs the full endpoint; this one is read-only"
 
         t = time.time()
         listed = show("list_sessions", await client.call_tool("list_sessions", {}), t)

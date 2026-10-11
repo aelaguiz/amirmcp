@@ -110,6 +110,7 @@ Chief, driven in the background through macOS accessibility):
 | --- | --- | --- |
 | "Please add a custom MCP server ... it only reads" | `initialize`, `tools/list` | "'Coding sessions (Amir-M5)' is added and connected, with 7 tools, all read-only", listing each one. |
 | "What is going on in my coding sessions on the MacBook right now, and does any of them need me?" | `overview` (52 s) | "44 sessions on the MacBook: 22 are working, and 22 are idle", then the seven waiting on Amir by name, e.g. "Cratejoy Shopify sync release. This needs a yes or no on shipping release 5." |
+| "Please add one more custom MCP server the same way ... for the coding sessions on my home server" (amir-server, just back from a crash) | `initialize`, `tools/list`, `overview`, `list_sessions` on amir-server | "'Coding sessions (home server)' is added and connected. It shows nothing running on the home server right now", then the seven sessions that stopped, including the SNG bot session that last wrote at 10:36 AM. |
 
 `send_message` on the read-only address returns "Unknown tool: send_message"
 (local MCP client, same day).

@@ -22,9 +22,10 @@ the dot (ChatGPT, BrowserOS Work profile, chatgpt.com/plugins):
 | Amir-M5 (MacBook Pro) | Coding sessions | `https://amir-m5.fairy-salmon.ts.net/<secret>/mcp` | launchd agent `com.amir.amirmcp` |
 | amir-server ("home") | Coding sessions (home server) | `https://home-mcp.fairy-salmon.ts.net/<secret>/mcp` | systemd user services `amirmcp` and `amirmcp-tailscale` |
 
-In Grok Bot the Mac's connector is the custom plugin "Coding sessions
-(Amir-M5)" at `https://amir-m5.fairy-salmon.ts.net/<read-secret>/mcp`, where
-`<read-secret>` is `AMIRMCP_READ_SECRET` from that machine's `.env`. Grok Bot
+In Grok Bot they are the custom plugins "Coding sessions (Amir-M5)" at
+`https://amir-m5.fairy-salmon.ts.net/<read-secret>/mcp` and "Coding sessions
+(home server)" at `https://home-mcp.fairy-salmon.ts.net/<read-secret>/mcp`,
+where `<read-secret>` is `AMIRMCP_READ_SECRET` from that machine's `.env`. Grok Bot
 has no settings form for custom servers on a personal account; ask a Bot in
 chat to add one (Grok Chief did).
 

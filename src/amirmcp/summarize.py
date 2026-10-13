@@ -1,6 +1,6 @@
 """Status briefs for one session, written by Claude Haiku 5.5.
 
-A brief is cached by transcript size and live state, so asking again about a
+A brief is cached by transcript position and live state, so asking again about a
 session that has not moved costs nothing.
 """
 
@@ -27,8 +27,9 @@ CACHE_PATH = os.path.expanduser("~/.cache/amirmcp/briefs.json")
 SYSTEM_PROMPT = """\
 You are writing a status brief about one of Amir's coding-agent sessions. Amir \
 is the founder and CEO of Fun Country (Poker Skill) and an engineer; he runs \
-dozens of Claude Code and Codex agents at once in Herdr terminal spaces. He is \
-away from his desk and has asked his assistant how this piece of work is going. \
+dozens of Claude Code, Codex and Antigravity CLI (agy) agents at once in Herdr \
+terminal spaces. He is away from his desk and has asked his assistant how this \
+piece of work is going. \
 Your brief is what the assistant answers from, and Amir acts on it: he leaves the \
 agent alone, unblocks it, or redirects it. A wrong "done" or a missed question \
 costs him real time, so accuracy matters more than polish.
@@ -172,8 +173,8 @@ def build_input(session: Session, now: float, window_chars: int = WINDOW_CHARS) 
 def brief(session: Session, now: float, refresh: bool = False, window_chars: int = WINDOW_CHARS) -> dict[str, Any]:
     if not session.transcript:
         return {"error": "This session has no transcript yet, so there is nothing to summarize.", "state": session.state}
-    size = os.path.getsize(session.transcript)
-    key = f"{session.transcript}|{size}|{session.state}"
+    position = transcripts.last_cursor(session.transcript, session.runtime)
+    key = f"{session.transcript}|{position}|{session.state}"
     with _lock:
         cached = _load_cache().get(key)
     # A brief written from a wider window can stand in for a narrower one
@@ -199,7 +200,7 @@ def brief(session: Session, now: float, refresh: bool = False, window_chars: int
         "covers": {
             "transcript": session.transcript,
             "from_cursor": first_cursor,
-            "to_cursor": size,
+            "to_cursor": position,
             "written_at": local_iso(time.time()),
             "state_when_written": session.state,
         },

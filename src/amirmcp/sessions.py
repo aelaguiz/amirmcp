@@ -9,6 +9,9 @@ guess by directory, because Amir often runs several agents in the same repo:
 * Codex logs every line with ``pid:<pid>:<uuid>`` and the thread it belongs to in
   ``~/.codex/logs_*.sqlite``; ``state_*.sqlite`` maps a thread to its rollout
   file. All Codex accounts share that one home.
+* agy (Antigravity CLI) holds ``presence/<conversation id>.lock`` open while it
+  runs a conversation, and lists every conversation in
+  ``~/.gemini/antigravity-cli/conversation_summaries.db``.
 
 Sessions that are no longer running but were active recently are listed too, so
 "what happened with X this morning" has an answer.
@@ -23,7 +26,7 @@ import sqlite3
 import subprocess
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from . import herdr, transcripts
@@ -31,6 +34,7 @@ from . import herdr, transcripts
 CLAUDE_HOMES_GLOB = os.path.expanduser("~/.aimgr/claude-homes/*/.claude")
 DEFAULT_CLAUDE_HOME = os.path.expanduser("~/.claude")
 CODEX_HOME = os.path.expanduser("~/.codex")
+AGY_HOME = os.path.expanduser("~/.gemini/antigravity-cli")
 AIMGR_STATE = os.path.expanduser("~/.aimgr/local-state.json")
 
 QUESTION_TOOLS = ("AskUserQuestion", "ExitPlanMode")
@@ -58,7 +62,7 @@ def ago(epoch: float | None, now: float) -> str:
 
 @dataclass
 class Session:
-    runtime: str  # "claude" or "codex"
+    runtime: str  # "claude", "codex" or "agy"
     session_id: str | None
     transcript: str | None
     account: str | None
@@ -81,11 +85,11 @@ class Session:
 
     @property
     def short_id(self) -> str:
-        # Claude ids are random from the first character; Codex ids are
-        # time-ordered, so threads started the same minute share a prefix and
-        # only the tail tells them apart.
+        # Claude and agy ids are random from the first character; Codex ids
+        # are time-ordered, so threads started the same minute share a prefix
+        # and only the tail tells them apart.
         if self.session_id:
-            part = self.session_id[:8] if self.runtime == "claude" else self.session_id[-8:]
+            part = self.session_id[-8:] if self.runtime == "codex" else self.session_id[:8]
             return f"{self.runtime}:{part}"
         return self.key
 
@@ -420,6 +424,104 @@ def codex_session(thread: dict[str, Any] | None, pid: int | None, pane: herdr.Pa
     return s
 
 
+# --------------------------------------------------------------------- agy
+
+
+def agy_conversation_for_pid(pid: int) -> str | None:
+    """The conversation a running agy is on, from the lock file it holds open."""
+    presence = os.path.join(AGY_HOME, "presence") + os.sep
+    fd_dir = f"/proc/{pid}/fd"
+    if os.path.isdir(fd_dir):
+        opened = []
+        for fd in os.listdir(fd_dir):
+            try:
+                opened.append(os.readlink(os.path.join(fd_dir, fd)))
+            except OSError:
+                continue
+    else:
+        proc = subprocess.run(["lsof", "-p", str(pid), "-Fn"], capture_output=True, text=True, timeout=10)
+        opened = [line[1:] for line in proc.stdout.splitlines() if line.startswith("n")]
+    for path in opened:
+        if path.startswith(presence) and path.endswith(".lock"):
+            return os.path.basename(path)[: -len(".lock")]
+    return None
+
+
+def agy_conversations(where: str, params: tuple) -> list[dict[str, Any]]:
+    path = os.path.join(AGY_HOME, "conversation_summaries.db")
+    if not os.path.exists(path):
+        return []
+    columns = ("conversation_id", "title", "preview", "workspace_uris", "status", "last_modified_time", "parent_conversation_id")
+    db, rows = transcripts.agy_query(path, f"select {', '.join(columns)} from conversation_summaries where {where}", params)
+    try:
+        return [dict(zip(columns, r)) for r in rows]
+    finally:
+        db.close()
+
+
+def _agy_time(value: str | None) -> float | None:
+    try:
+        return datetime.fromisoformat(value).timestamp() if value else None
+    except ValueError:
+        return None
+
+
+def _agy_folder(row: dict[str, Any]) -> str:
+    try:
+        uris = json.loads(row.get("workspace_uris") or "[]")
+    except json.JSONDecodeError:
+        return ""
+    first = next((u for u in uris if isinstance(u, str) and u.startswith("file://")), "")
+    return first[len("file://") :]
+
+
+def agy_session(conversation: str | None, row: dict[str, Any] | None, pid: int | None, pane: herdr.Pane | None, now: float) -> Session:
+    path = os.path.join(AGY_HOME, "conversations", f"{conversation}.db") if conversation else None
+    exists = bool(path) and os.path.exists(path)
+    row = row or {}
+    requests = transcripts.user_requests(path, "agy") if exists else []
+    s = Session(
+        runtime="agy",
+        session_id=conversation,
+        transcript=path if exists else None,
+        # agy signs in with a Google account it records only in its log, and
+        # AI Manager does not launch it, so there is no account to show.
+        account=None,
+        cwd=_agy_folder(row) or (pane.cwd if pane else ""),
+        title=(row.get("title") or row.get("preview") or (requests[0].text if requests else "") or (pane.title if pane else ""))[:200],
+        pid=pid,
+        pane=pane,
+        first_request=requests[0].text if requests else None,
+    )
+    if not conversation:
+        s.state, s.state_reason = "idle", "agy is open at its prompt and has not started a conversation"
+        return s
+    written = [os.path.getmtime(p) for p in (path, path + "-wal") if p and os.path.exists(p)]
+    s.last_activity = max(written) if written else _agy_time(row.get("last_modified_time"))
+    waiting = transcripts.agy_waiting(path) if exists and pid else None
+    herdr_status = pane.herdr_status if pane else None
+    run_status = row.get("status") or ""
+    if waiting:
+        s.state, s.state_reason = "blocked", f"Waiting for Amir to answer: {waiting}"
+    elif herdr_status == "blocked":
+        s.state, s.state_reason = "blocked", "Herdr sees agy waiting on a question or approval"
+    elif herdr_status == "working" or (herdr_status is None and run_status.endswith(("RUNNING", "BUSY"))):
+        s.state, s.state_reason = "working", f"Turn in progress; last write {ago(s.last_activity, now)}"
+    elif herdr_status in ("idle", "done") or run_status.endswith("IDLE"):
+        s.state, s.state_reason = "idle", f"Finished its turn and is waiting at the prompt (last write {ago(s.last_activity, now)})"
+    else:
+        s.state, s.state_reason = "unknown", f"agy reports {run_status or 'no run status'}"
+    if not exists:
+        s.notes.append("agy lists this conversation, but its database is missing on disk.")
+    return s
+
+
+def _agy_for_pid(pid: int, pane: herdr.Pane | None, now: float) -> Session:
+    conversation = agy_conversation_for_pid(pid)
+    rows = agy_conversations("conversation_id = ?", (conversation,)) if conversation else []
+    return agy_session(conversation, rows[0] if rows else None, pid, pane, now)
+
+
 # ---------------------------------------------------------------- snapshot
 
 
@@ -430,6 +532,10 @@ def _is_claude(proc: dict[str, Any]) -> bool:
 
 def _is_codex(proc: dict[str, Any]) -> bool:
     return proc.get("name") == "codex"
+
+
+def _is_agy(proc: dict[str, Any]) -> bool:
+    return proc.get("name") == "agy"
 
 
 def _pid_alive(pid: int) -> bool:
@@ -463,12 +569,12 @@ def _ssh_client(pid: int) -> str | None:
     return f"{conn[0]}:{conn[1]}" if len(conn) >= 2 else None
 
 
-def _codex_pids() -> list[int]:
+def _pids_named(name: str) -> list[int]:
     proc = subprocess.run(["ps", "-axo", "pid=,comm="], capture_output=True, text=True, timeout=10)
     pids = []
     for line in proc.stdout.splitlines():
         parts = line.split(None, 1)
-        if len(parts) == 2 and os.path.basename(parts[1].strip()) == "codex":
+        if len(parts) == 2 and os.path.basename(parts[1].strip()) == name:
             pids.append(int(parts[0]))
     return pids
 
@@ -502,6 +608,7 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
     ssh_panes: list[dict[str, Any]] = []
     seen_claude_pids: set[int] = set()
     seen_codex_pids: set[int] = set()
+    seen_agy_pids: set[int] = set()
     seen_ids: set[str] = set()
 
     for pane in panes:
@@ -517,6 +624,9 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
             elif _is_codex(proc) and pid:
                 sessions.append(_codex_for_pid(pid, pane, labels, now))
                 seen_codex_pids.add(pid)
+            elif _is_agy(proc) and pid:
+                sessions.append(_agy_for_pid(pid, pane, now))
+                seen_agy_pids.add(pid)
             elif proc.get("name") == "ssh":
                 ssh_panes.append({"where": pane.location(), "command": proc.get("cmdline") or "ssh"})
     seen_ids.update(s.key for s in sessions)
@@ -533,7 +643,7 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
                 s.notes.append("Running, but not in any Herdr pane.")
             sessions.append(s)
             seen_ids.add(s.key)
-    for pid in _codex_pids():
+    for pid in _pids_named("codex"):
         if pid in seen_codex_pids:
             continue
         pane = via_ssh.get(_ssh_client(pid) or "")
@@ -542,6 +652,18 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
             # (the ChatGPT app's app-server and exec-server), not Amir's work.
             continue
         s = _codex_for_pid(pid, pane, labels, now)
+        if s.key not in seen_ids:
+            if pane is None:
+                s.notes.append("Running, but not in any Herdr pane.")
+            sessions.append(s)
+            seen_ids.add(s.key)
+    for pid in _pids_named("agy"):
+        if pid in seen_agy_pids:
+            continue
+        pane = via_ssh.get(_ssh_client(pid) or "")
+        s = _agy_for_pid(pid, pane, now)
+        if pane is None and not s.session_id:
+            continue
         if s.key not in seen_ids:
             if pane is None:
                 s.notes.append("Running, but not in any Herdr pane.")
@@ -581,6 +703,21 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
         s = codex_session(thread, None, None, labels, now)
         s.state = "stopped"
         s.state_reason = f"No Codex process is running this thread; last written {ago(s.last_activity, now)}"
+        sessions.append(s)
+        seen_ids.add(s.key)
+
+    # Subagent conversations are left out; their parent's history shows the call.
+    stopped_agy = (
+        agy_conversations("parent_conversation_id = '' and last_modified_time >= ?", (datetime.fromtimestamp(cutoff, timezone.utc).isoformat(sep=" "),))
+        if recent_hours > 0
+        else []
+    )
+    for row in stopped_agy:
+        if f"agy:{row['conversation_id']}" in seen_ids:
+            continue
+        s = agy_session(row["conversation_id"], row, None, None, now)
+        s.state = "stopped"
+        s.state_reason = f"No agy process is running this conversation; last written {ago(s.last_activity, now)}"
         sessions.append(s)
         seen_ids.add(s.key)
 

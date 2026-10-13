@@ -1,7 +1,9 @@
 """Typing into panes: the checks that keep a message from going wrong.
 
 The screens in tests/screens/ are real captures from Claude Code 2.1.296 and
-Codex 0.161 in a lab Herdr session on 2026-10-10 (docs/SENDING_TO_AGENTS.md).
+Codex 0.161 in a lab Herdr session on 2026-10-10 (docs/SENDING_TO_AGENTS.md),
+and from agy 1.3.4 on 2026-10-13 (docs/AGY_SUPPORT.md). agy_with_tasks is the
+bottom of a real pane with its text swapped for neutral words.
 """
 
 import json
@@ -33,6 +35,16 @@ EXPECTED = {
     "codex_draft": "draft",
     "codex_approval": "absent",
     "shell_after_exit": "absent",
+    "agy_fresh": "ready",
+    "agy_idle": "ready",
+    "agy_working": "ready",
+    "agy_working_queued": "ready",  # "▸ From Amir ..." waits above the box
+    "agy_with_tasks": "ready",  # a background task listed under the box
+    "agy_draft": "draft",
+    "agy_question": "absent",
+    "agy_question_second": "absent",
+    "agy_question_after_history": "absent",  # Amir's earlier message has a short rule above it
+    "agy_trust": "absent",  # "> Yes, I trust this folder" uses the same > glyph
 }
 
 
@@ -43,7 +55,7 @@ def screen(name):
 
 @pytest.mark.parametrize("name,expected", sorted(EXPECTED.items()))
 def test_input_box_from_real_screens(name, expected):
-    runtime = "codex" if name.startswith("codex") else "claude"
+    runtime = name.split("_")[0] if name.startswith(("codex", "agy")) else "claude"
     state, draft = control.input_box(screen(name), runtime)
     assert state == expected
     assert bool(draft) == (expected == "draft")
@@ -52,6 +64,7 @@ def test_input_box_from_real_screens(name, expected):
 def test_drafts_are_read_back_and_shells_are_never_ready():
     assert control.input_box(screen("claude_draft"), "claude") == ("draft", "Amir half-typed draft")
     assert control.input_box(screen("codex_draft"), "codex") == ("draft", "Amir codex draft")
+    assert control.input_box(screen("agy_draft"), "agy") == ("draft", "Amir half typed this")
     assert control.input_box(screen("shell_after_exit"), "codex")[0] == "absent"
 
 

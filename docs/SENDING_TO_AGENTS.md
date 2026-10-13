@@ -74,6 +74,11 @@ Prompts that need an answer, and how they were answered:
 | Codex command approval | `y`, `p`, or `esc`. |
 | Codex question | A plain message, or `shift+left` and the option. |
 | Claude and Codex folder trust | Arrow to the option, Enter. |
+| agy question (`ask_question`) | The option's number, one per question; the last one submits. `Write-in...` by its number, then text and Enter. |
+| agy folder trust | Enter on "Yes, I trust this folder". |
+
+agy (Google's Antigravity CLI) went through the same experiments on
+2026-10-13; see [AGY_SUPPORT.md](AGY_SUPPORT.md).
 
 ## Design
 

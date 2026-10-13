@@ -22,7 +22,8 @@ records, so they run anywhere in about a second.
 | Short ids | two Codex threads started the same minute get different short ids. |
 | Session lookup | id, id prefix, pane id and loose names resolve; several matches return all of them. |
 | Secret path | requests outside `/<secret>/` get a 404; requests under it reach the app with the prefix removed. |
-| Input box | 18 real screen captures (`tests/screens/`) read as ready, draft or absent: placeholders, suggestions and queued-message hints are not drafts; Claude and Codex menus, approvals and trust dialogs have no input box. |
+| Input box | 28 real screen captures (`tests/screens/`) read as ready, draft or absent: placeholders, suggestions and queued-message hints are not drafts; Claude, Codex and agy menus, questions, approvals and trust dialogs have no input box, and neither does an earlier message in agy's history. |
+| agy steps | step records built by field number become user, assistant, tool and event entries with step-index cursors; a failed command is an error; a waiting `ask_question` blocks the session with its question; reading leaves agy's files untouched; a pane's agy is tied to its conversation. |
 | Typing | a message is the typed lead-in then the paste; nothing is typed over a draft, into a menu, into a shell, or into a pane whose SSH connection is a different one. |
 | Codex question | an unanswered `request_user_input` reads as waiting on Amir until his next message. |
 | Delivery check | the first transcript line written after sending is found (it was skipped once). |
@@ -182,3 +183,28 @@ Results on 2026-10-10 (Claude Code 2.1.296, Codex 0.161):
 | Ralph, BrowserOS Work profile | "Tell the Claude agent in my amirmcp-lab session to reply RALPH WAS HERE": `list_sessions`, `send_message` (delivered), `read_history`; Ralph: "It replied exactly: RALPH WAS HERE" | | "The lab agent on my home server is asking me a question; answer sparrow": `list_sessions`, `read_screen`, `press_keys ["2"]`; Ralph: "Selected Sparrow. The agent replied: Sparrow." |
 
 ChatGPT did not ask Amir to confirm either of Ralph's acting calls.
+
+## 9. agy (after any change to agy reading or sending)
+
+Same lab as section 8, with `agy` started in a workspace of the private Herdr
+session. Accepting agy's trust prompt adds the lab folder to
+`trustedWorkspaces` in `~/.gemini/antigravity-cli/settings.json`; remove it
+afterwards. Never change `toolPermission` there: every agy on the Mac shares
+it.
+
+Results on 2026-10-13 (agy 1.3.4, Gemini 4 Argon):
+
+| Case | Result |
+| --- | --- |
+| Amir's four live agy panes, read only | `list_sessions` shows each in its Herdr space and workspace ("lessons agy", "bots agy", "subgame agy") with its title and state; `get_session`, `read_history` (back and forward by step), `search_history` and `summarize_session` work. The Haiku brief cited steps c0 to c68 and kept the agent's unchecked claims apart from what its commands showed. |
+| Idle, one line | delivered (c24), agy replied as asked |
+| Mid-turn | delivered within ten seconds as a queued message, acted on after the running command |
+| Long message (4,315 characters, 41 lines) | delivered and acted on ("ELM 40") |
+| Amir's unsent draft | refused, draft left alone |
+| Question menu (`ask_question`) | state blocked with the question; `send_message` refused; `read_screen` shows the menu; `press_keys ["2"]` answered; `press_keys ["4"]` with text answered a write-in |
+| Fresh agy, no conversation yet | listed as open at its prompt; the first message was delivered at c0 and the session took its new id |
+| agy suspended behind its shell | refused, nothing typed; its locked database is read as last written |
+| agy exited | refused as not running |
+| `esc` mid-turn | stopped the turn |
+| Public endpoints | the read-only address lists the agy sessions; a send through the full address was delivered |
+| Ralph, BrowserOS Work profile | "Which agy sessions are running on my MacBook right now? Then tell the agy agent in my amirmcp-lab Herdr session (workspace agylab) to reply with exactly RALPH AGY OK": `list_sessions`, `send_message` (delivered), `read_history`; Ralph: "Four AGY sessions are running on your MacBook ... I sent the message to amirmcp-lab → agylab and verified its exact reply: RALPH AGY OK". Then "answer it for me: Tokyo": `read_screen`, `get_session`, `press_keys ["2"]`; Ralph: "Answered Tokyo. It replied exactly: 'Tokyo'". |

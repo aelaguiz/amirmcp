@@ -1,7 +1,8 @@
 # amirmcp
 
 An MCP connector that lets Amir's OpenAI dot (Ralph), which runs on OpenAI's
-servers, see the Claude Code and Codex sessions running on his machines, with
+servers, see the Claude Code, Codex and Antigravity CLI (agy) sessions running
+on his machines, with
 the Herdr pane each one is in, and talk to them for him. From anywhere he can
 ask "how's the SEO plan going?" or "what's waiting on me?" and get an answer
 grounded in the agents' own transcripts, with summaries written by Claude
@@ -38,6 +39,7 @@ an agent running on the server.
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md): how it works and why.
 - [Test plan](docs/TEST_PLAN.md): how to check it, from unit tests to the dot.
 - [Sending to agents](docs/SENDING_TO_AGENTS.md): how the dot types into agents' panes safely, and the experiments behind it.
+- [agy sessions](docs/AGY_SUPPORT.md): how the connector reads Antigravity CLI's conversations and types into it.
 
 ## What the dot can call
 

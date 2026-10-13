@@ -127,7 +127,7 @@ def test_agent_in_ssh_session_gets_the_remote_pane(tmp_path, monkeypatch):
     monkeypatch.setattr(herdr, "remote_panes", lambda host: ([mac_pane], []))
     monkeypatch.setattr(sessions, "claude_process_records", lambda: {4242: (home, record("busy"))})
     monkeypatch.setattr(sessions, "_pid_alive", lambda pid: True)
-    monkeypatch.setattr(sessions, "_codex_pids", lambda: [])
+    monkeypatch.setattr(sessions, "_pids_named", lambda name: [])
     monkeypatch.setattr(sessions, "codex_account_labels", lambda: {})
     monkeypatch.setattr(sessions, "_process_env", lambda pid: {"SSH_CONNECTION": "100.72.74.74 50370 100.66.11.7 22"})
     snap = sessions.snapshot(recent_hours=0)

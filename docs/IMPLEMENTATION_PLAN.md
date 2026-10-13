@@ -51,6 +51,11 @@ directory. It comes from the process in the pane:
   All Codex accounts share `~/.codex`; the account label comes from matching the
   rollout's `creator_account_id` to AI Manager's selection history in
   `~/.aimgr/local-state.json`, and is blank when that history has no match.
+- **agy.** The pane's foreground process is named `agy` (Herdr recognizes it).
+  A running agy holds `~/.gemini/antigravity-cli/presence/<conversation>.lock`
+  open; `conversation_summaries.db` gives the title, folder and run status, and
+  `conversations/<id>.db` holds the steps. Details in
+  [AGY_SUPPORT.md](AGY_SUPPORT.md).
 
 ## Agents on amir-server, panes on the Mac
 
@@ -73,13 +78,13 @@ other plugin.
 
 ## Live state
 
-| State | Claude | Codex |
-| --- | --- | --- |
-| working | `status: busy`, or `status: shell` (turn ended, background jobs it started still running) | Herdr says working, or the rollout has a turn started and not finished |
-| blocked | `status: waiting`, or its last tool call is an unanswered `AskUserQuestion` / `ExitPlanMode` | Herdr says blocked |
-| idle | `status: idle`: finished its turn, waiting at the prompt | Herdr says idle or done |
-| stopped | no running process; transcript written in the last 72 hours | same |
-| unknown | anything else, said so | same |
+| State | Claude | Codex | agy |
+| --- | --- | --- | --- |
+| working | `status: busy`, or `status: shell` (turn ended, background jobs it started still running) | Herdr says working, or the rollout has a turn started and not finished | Herdr says working |
+| blocked | `status: waiting`, or its last tool call is an unanswered `AskUserQuestion` / `ExitPlanMode` | Herdr says blocked | a step waiting on Amir (an unanswered `ask_question`), or Herdr says blocked |
+| idle | `status: idle`: finished its turn, waiting at the prompt | Herdr says idle or done | Herdr says idle or done |
+| stopped | no running process; transcript written in the last 72 hours | same | same |
+| unknown | anything else, said so | same | same |
 
 Idle is never reported as finished. The summary is where "finished the work" vs
 "stopped to ask" vs "gave up" gets decided, from the transcript.

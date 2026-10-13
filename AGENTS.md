@@ -1,7 +1,7 @@
 # Agent Notes
 
 amirmcp is Amir's connector that lets his OpenAI dot, which runs on OpenAI's
-servers, see the Claude and Codex coding sessions running in his Herdr spaces on
+servers, see the Claude, Codex and agy coding sessions running in his Herdr spaces on
 this Mac. Start with [README.md](README.md). Requirements, implementation plan
 and test plan live in [docs/](docs/). `CLAUDE.md` is a symlink to this file, not
 a second rulebook.

@@ -1,9 +1,10 @@
-"""Turn Claude Code and Codex transcript files into short, citable entries.
+"""Turn Claude Code, Codex and agy transcripts into short, citable entries.
 
-Both runtimes append one JSON record per line. An entry's ``cursor`` is the byte
-offset of the line it came from, so a cursor is stable as the file grows and
-lets a caller read "everything after this point" or check an entry against the
-raw file.
+Claude Code and Codex append one JSON record per line; an entry's ``cursor`` is
+the byte offset of the line it came from. agy keeps one SQLite row per step,
+and its cursor is the step index. Either way a cursor is stable as the
+transcript grows and lets a caller read "everything after this point" or check
+an entry against the raw transcript.
 
 Entry kinds:
   user       something Amir (or a parent agent) typed
@@ -18,9 +19,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import sqlite3
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterator
 
 TEXT_LIMIT = 2000
@@ -188,6 +191,200 @@ def codex_entries(record: dict[str, Any], cursor: int) -> list[Entry]:
     return []
 
 
+# ------------------------------------------------------------------------ agy
+#
+# Antigravity CLI keeps each conversation in its own SQLite file, one row per
+# step, and the step itself as a protobuf record (``gemini_coder.Step``). The
+# field numbers below come from the definitions embedded in the agy binary;
+# protobuf numbers do not change between versions. An agy cursor is the step
+# index, not a byte offset. See docs/AGY_SUPPORT.md.
+
+AGY_USER_INPUT, AGY_REPLY, AGY_TOOL, AGY_ERROR, AGY_SYSTEM, AGY_SUBAGENT, AGY_QUESTION = 14, 15, 132, 17, 101, 127, 138
+STEP_ERROR, STEP_WAITING = 7, 9  # CortexStepStatus
+
+
+def _varint(buf: bytes, i: int) -> tuple[int, int]:
+    shift = value = 0
+    while True:
+        byte = buf[i]
+        i += 1
+        value |= (byte & 0x7F) << shift
+        if byte < 0x80:
+            return value, i
+        shift += 7
+
+
+def _fields(buf: bytes | None) -> dict[int, list[Any]]:
+    """A protobuf record's fields: number -> values (ints, or bytes for anything length-delimited)."""
+    out: dict[int, list[Any]] = {}
+    i = 0
+    buf = buf or b""
+    try:
+        while i < len(buf):
+            key, i = _varint(buf, i)
+            number, wire = key >> 3, key & 7
+            if wire == 0:
+                value, i = _varint(buf, i)
+            elif wire == 1:
+                value, i = int.from_bytes(buf[i : i + 8], "little"), i + 8
+            elif wire == 2:
+                size, i = _varint(buf, i)
+                value, i = buf[i : i + size], i + size
+            elif wire == 5:
+                value, i = int.from_bytes(buf[i : i + 4], "little"), i + 4
+            else:
+                break
+            out.setdefault(number, []).append(value)
+    except IndexError:
+        pass
+    return out
+
+
+def _sub(fields: dict[int, list[Any]], number: int) -> dict[int, list[Any]]:
+    value = (fields.get(number) or [b""])[0]
+    return _fields(value) if isinstance(value, bytes) else {}
+
+
+def _str(fields: dict[int, list[Any]], number: int) -> str:
+    value = (fields.get(number) or [b""])[0]
+    return value.decode("utf-8", "replace") if isinstance(value, bytes) else ""
+
+
+def _int(fields: dict[int, list[Any]], number: int) -> int:
+    value = (fields.get(number) or [0])[0]
+    return value if isinstance(value, int) else 0
+
+
+def _agy_ts(meta: dict[int, list[Any]]) -> str:
+    created = _sub(meta, 1)  # metadata.created_at, a Timestamp
+    seconds = _int(created, 1)
+    return datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if seconds else ""
+
+
+def agy_questions(raw: str) -> str:
+    """The questions an ask_question call puts to Amir, with their options."""
+    try:
+        asked = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return raw
+    return " / ".join(
+        f"{q.get('question', '')} ({', '.join(str(o) for o in q.get('options') or [])})" if q.get("options") else str(q.get("question", ""))
+        for q in asked
+        if isinstance(q, dict)
+    )
+
+
+def _agy_tool_text(name: str, args: dict[str, str], output: str) -> str:
+    if name == "ask_question" and args.get("questions"):
+        args = {"Question": agy_questions(args["questions"])}
+    for key in ("CommandLine", "AbsolutePath", "Url", "Query", "Prompt", "Question", "toolSummary"):
+        if args.get(key):
+            detail = args[key]
+            break
+    else:
+        detail = json.dumps(args, ensure_ascii=False)
+    text = _clip(f"{name}: {detail}", TOOL_LIMIT)
+    return text + (f"\n-> {_tail(output, TOOL_LIMIT)}" if output.strip() else "")
+
+
+def agy_step_entries(idx: int, payload: bytes) -> list[Entry]:
+    step = _fields(payload)
+    kind = _int(step, 1)
+    meta = _sub(step, 5)
+    ts = _agy_ts(meta)
+    if kind == AGY_USER_INPUT:
+        user = _sub(step, 19)
+        text = _str(user, 2) or "\n".join(_str(_fields(item), 1) for item in user.get(3, []))
+        return [Entry(idx, ts, "user", _clip(text, TEXT_LIMIT))] if text.strip() else []
+    if kind == AGY_REPLY:
+        reply = _sub(step, 20)
+        text = _str(reply, 8) or _str(reply, 1)  # modified_response, else response
+        return [Entry(idx, ts, "assistant", _clip(text, TEXT_LIMIT))] if text.strip() else []
+    if kind == AGY_TOOL:
+        tool = _sub(step, 140)
+        args = {}
+        for entry in tool.get(1, []):
+            pair = _fields(entry)
+            args[_str(pair, 1)] = _str(pair, 2)
+        output = _str(_sub(tool, 2), 1)
+        name = _str(_sub(meta, 4), 2) or "tool"  # metadata.tool_call.name
+        exit_code = re.search(r"exited with code (-?\d+)", output[:200])
+        failed = _int(step, 4) == STEP_ERROR or 31 in step or bool(exit_code and exit_code.group(1) != "0")
+        return [Entry(idx, ts, "tool", _agy_tool_text(name, args, output), is_error=failed)]
+    if kind == AGY_ERROR:
+        error = _sub(_sub(step, 24), 3)
+        return [Entry(idx, ts, "tool", _clip(f"error: {_str(error, 1) or _str(error, 2)}", TOOL_LIMIT), is_error=True)]
+    if kind == AGY_QUESTION:
+        asked = [_str(_fields(q), 1) for q in _sub(step, 154).get(1, [])]
+        return [Entry(idx, ts, "tool", _clip("ask_question: " + " / ".join(asked), TOOL_LIMIT))]
+    if kind == AGY_SUBAGENT:
+        call = _sub(step, 143)
+        return [Entry(idx, ts, "event", _clip(f"subagent {_str(call, 1)}: {_str(call, 2)}", TOOL_LIMIT))]
+    if kind == AGY_SYSTEM:
+        text = _str(_sub(step, 114), 1)
+        return [Entry(idx, ts, "event", _clip(text, TOOL_LIMIT))] if text.strip() else []
+    return []
+
+
+def agy_query(path: str, sql: str, params: tuple = ()) -> tuple[sqlite3.Connection, sqlite3.Cursor]:
+    """Run a query on an agy database without writing to it; the caller closes it.
+
+    While agy has the file open (its WAL index exists) read through the WAL, so
+    the newest steps show. An agy stopped mid-write (suspended with ctrl+z)
+    keeps the database locked; then, and when agy is not running, read the file
+    as last written.
+    """
+    uris = [f"file:{path}?immutable=1"]
+    if os.path.exists(path + "-shm"):
+        uris.insert(0, f"file:{path}?mode=ro")
+    for n, uri in enumerate(uris):
+        db = sqlite3.connect(uri, uri=True, timeout=1)
+        try:
+            return db, db.execute(sql, params)
+        except sqlite3.OperationalError as exc:
+            db.close()
+            if "locked" not in str(exc) or n == len(uris) - 1:
+                raise
+    raise AssertionError("unreachable")
+
+
+def _agy_steps(path: str, where: str = "", params: tuple = (), order: str = "asc") -> Iterator[tuple[int, bytes]]:
+    db, rows = agy_query(path, f"select idx, step_payload from steps {where} order by idx {order}", params)
+    try:
+        yield from rows
+    finally:
+        db.close()
+
+
+def _agy_entries(path: str, where: str = "", params: tuple = (), order: str = "asc") -> Iterator[Entry]:
+    for idx, payload in _agy_steps(path, where, params, order):
+        yield from agy_step_entries(idx, payload)
+
+
+def agy_waiting(path: str) -> str | None:
+    """What agy is waiting on Amir for: a step it holds open for his answer or approval."""
+    for idx, payload in _agy_steps(path, "where status = ?", (STEP_WAITING,), order="desc"):
+        for entry in agy_step_entries(idx, payload):
+            asked = entry.text.split("\n")[0]
+            return asked[len("ask_question: ") :] if asked.startswith("ask_question: ") else f"approval for {asked}"
+        return "a step waiting on him"
+    return None
+
+
+def last_cursor(path: str, runtime: str) -> int:
+    """A cursor at the end of the transcript: entries_after it returns only what is written later."""
+    if runtime == "agy":
+        db, rows = agy_query(path, "select max(idx) from steps")
+        try:
+            row = rows.fetchone()
+        finally:
+            db.close()
+        return row[0] if row and row[0] is not None else -1
+    # entries_after skips the line its cursor points at, so point at the last
+    # byte already written: the next line is the first one returned.
+    return max(os.path.getsize(path) - 1, 0)
+
+
 # ------------------------------------------------------------------- reading
 
 
@@ -219,13 +416,23 @@ def iter_lines(path: str, start: int = 0) -> Iterator[tuple[int, bytes]]:
 
 def entries_after(path: str, runtime: str, cursor: int, limit: int) -> tuple[list[Entry], int, bool]:
     """Entries on lines after ``cursor``; returns (entries, next_cursor, more)."""
+    if runtime == "agy":
+        found: list[Entry] = []
+        next_cursor = cursor
+        for idx, payload in _agy_steps(path, "where idx > ?", (cursor,)):
+            step = agy_step_entries(idx, payload)
+            if step and len(found) + len(step) > limit and found:
+                return found, next_cursor, True
+            found.extend(step)
+            next_cursor = idx
+        return found, next_cursor, False
     parse = parser_for(runtime)
-    start = cursor
+    start = max(cursor, 0)  # -1 means from the start, as for agy
     entries: list[Entry] = []
     next_cursor = cursor
     with open(path, "rb") as fh:
         fh.seek(start)
-        if start:
+        if cursor > 0:
             fh.readline()  # skip the line the cursor points at
         offset = fh.tell()
         for raw in fh:
@@ -244,7 +451,16 @@ def tail_entries(path: str, runtime: str, limit: int, before: int | None = None)
     """The last ``limit`` entries before byte offset ``before`` (default: end of file).
 
     Returns (entries in chronological order, whether earlier entries exist).
+    For agy, ``before`` is a step index.
     """
+    if runtime == "agy":
+        found: list[Entry] = []
+        where, params = ("where idx < ?", (before,)) if before is not None else ("", ())
+        for entry in _agy_entries(path, where, params, order="desc"):
+            if len(found) == limit:
+                return found[::-1], True
+            found.append(entry)
+        return found[::-1], False
     parse = parser_for(runtime)
     end = os.path.getsize(path) if before is None else before
     window = 256 * 1024
@@ -270,6 +486,9 @@ def tail_entries(path: str, runtime: str, limit: int, before: int | None = None)
 
 
 def all_entries(path: str, runtime: str, kinds: set[str] | None = None) -> Iterator[Entry]:
+    if runtime == "agy":
+        yield from (e for e in _agy_entries(path) if kinds is None or e.kind in kinds)
+        return
     parse = parser_for(runtime)
     for offset, raw in iter_lines(path):
         for entry in _parse_line(raw, offset, parse):
@@ -279,6 +498,8 @@ def all_entries(path: str, runtime: str, kinds: set[str] | None = None) -> Itera
 
 def user_requests(path: str, runtime: str) -> list[Entry]:
     """Every user message in the session, oldest first: the session's objectives."""
+    if runtime == "agy":
+        return [e for e in _agy_entries(path, "where step_type = ?", (AGY_USER_INPUT,)) if e.kind == "user"]
     parse = parser_for(runtime)
     # A cheap byte check before parsing; whitespace-agnostic on purpose.
     markers = (b'"user"', b'"queued_command"') if runtime == "claude" else (b'"UserMessage"',)
@@ -292,6 +513,8 @@ def user_requests(path: str, runtime: str) -> list[Entry]:
 def search(path: str, runtime: str, query: str, limit: int) -> list[dict[str, Any]]:
     """Entries whose text contains ``query`` (case-insensitive), with the entry
     just before and just after each one for context."""
+    if runtime == "agy":
+        return _agy_search(path, query, limit)
     parse = parser_for(runtime)
     needle = query.lower()
     raw_needle = needle.encode()
@@ -326,3 +549,22 @@ def _last_entry_of(lines: deque[tuple[int, bytes]], parse) -> Entry | None:
         if found:
             return found[-1]
     return None
+
+
+def _agy_search(path: str, query: str, limit: int) -> list[dict[str, Any]]:
+    needle = query.lower()
+    hits: list[dict[str, Any]] = []
+    previous: Entry | None = None
+    pending: dict[str, Any] | None = None
+    for entry in _agy_entries(path):
+        if pending is not None:
+            pending["after"] = entry.as_dict()
+            pending = None
+            if len(hits) >= limit:
+                return hits
+        if needle in entry.text.lower():
+            hit = {"match": entry.as_dict(), "before": previous.as_dict() if previous else None, "after": None}
+            hits.append(hit)
+            pending = hit
+        previous = entry
+    return hits

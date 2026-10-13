@@ -22,6 +22,9 @@ added sending (requirement 6).
   (`aim`), on many accounts. Claude transcripts live under each account's home in
   `~/.aimgr/claude-homes/<account>/.claude/`; Codex state is shared in
   `~/.codex` (reached through `~/.aimgr/codex-cli`).
+- **agy** (Google's Antigravity CLI), added 2026-10-13: run directly in Herdr
+  panes, not through AI Manager; supported the same way, reading and sending
+  ([AGY_SUPPORT.md](AGY_SUPPORT.md)).
 
 ## What the dot must be able to do
 

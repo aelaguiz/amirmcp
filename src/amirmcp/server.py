@@ -65,9 +65,10 @@ LOG_FILE = os.path.expanduser(
 )
 
 READ_INSTRUCTIONS = f"""\
-Amir's coding agents on {MACHINE}: every Claude Code and Codex session running \
-there, with the Herdr pane each one is in, plus ones that stopped recently. Each \
-of Amir's machines has its own Coding sessions plugin; ask each one when he asks \
+Amir's coding agents on {MACHINE}: every Claude Code, Codex and Antigravity CLI \
+(agy) session running there, with the Herdr pane each one is in, plus ones that \
+stopped recently. Each of Amir's machines has its own Coding sessions plugin; ask \
+each one when he asks \
 about all his work. For "how's X going", call summarize_session; for "what's going \
 on" or "what needs me", call overview; list_sessions finds ids. States: working, \
 blocked (waiting on Amir), idle (finished its turn; not necessarily done), stopped \
@@ -142,7 +143,7 @@ def _need_transcript(s: Session) -> str:
 
 @read_tool
 def list_sessions(query: str | None = None, include_stopped: bool = False) -> dict[str, Any]:
-    """List Amir's coding sessions: each Claude Code or Codex agent, which Herdr
+    """List Amir's coding sessions: each Claude Code, Codex or agy agent, which Herdr
     session, workspace and pane it runs in, its AI Manager account, project
     directory, title, live state, and when it last wrote.
 
@@ -217,7 +218,7 @@ def read_history(
         result = {"entries": entries, "next_cursor": next_cursor, "more_after": more}
     else:
         entries, more = transcripts.tail_entries(path, s.runtime, limit, before=before_cursor)
-        result = {"entries": entries, "more_before": more, "next_cursor": os.path.getsize(path)}
+        result = {"entries": entries, "more_before": more, "next_cursor": transcripts.last_cursor(path, s.runtime)}
     wanted = set(kinds) if kinds else None
     result["entries"] = [e.as_dict() for e in result["entries"] if wanted is None or e.kind in wanted]
     return {"session": s.short_id, "state": s.state, "transcript": path, **result}
@@ -353,12 +354,18 @@ def _fresh(ref: str) -> tuple[Session, Snapshot]:
 
 
 def _transcript_now(s: Session) -> str | None:
-    if s.transcript or s.runtime != "claude" or not s.session_id:
+    """The session's transcript, including one its first message just created."""
+    if s.transcript:
         return s.transcript
-    for home in sessions.claude_homes():  # a new session writes its file on the first message
-        found = sessions.claude_transcript(home, s.session_id)
-        if found:
-            return found
+    if s.runtime == "agy" and s.pid:
+        conversation = sessions.agy_conversation_for_pid(s.pid)
+        path = os.path.join(sessions.AGY_HOME, "conversations", f"{conversation}.db") if conversation else None
+        return path if path and os.path.exists(path) else None
+    if s.runtime == "claude" and s.session_id:
+        for home in sessions.claude_homes():  # a new session writes its file on the first message
+            found = sessions.claude_transcript(home, s.session_id)
+            if found:
+                return found
     return None
 
 
@@ -451,9 +458,7 @@ def send_message(session: str, text: str) -> dict[str, Any]:
             "screen": _tail_rows(reply.get("screen", "")),
         }
     path = _transcript_now(s)
-    # entries_after skips the line its cursor is on, so point at the last byte
-    # already written: the next line is the first one checked.
-    cursor = max(os.path.getsize(path) - 1, 0) if path else 0
+    cursor = transcripts.last_cursor(path, s.runtime) if path else -1
     reply = _pane_result(control.run_on(host, {"op": "send", "target": target.__dict__, "text": text}))
     if reply.get("result") == "refused":
         return {"session": s.short_id, **reply}
@@ -488,8 +493,10 @@ def press_keys(session: str, keys: list[str], text: str | None = None) -> dict[s
     Typical answers: a Claude question or approval takes the option's number
     ("2"); its "Type something" option takes that option's number and then
     text; a Claude review screen takes "1" to submit. A Codex command approval
-    takes "y", "p" or "esc". Menus also take "up", "down" and "enter". A
-    Codex question needs no keys: send_message answers it.
+    takes "y", "p" or "esc". A Codex question needs no keys: send_message
+    answers it. An agy question takes the option's number, one per question
+    (the last one submits); its "Write-in..." option takes that number and
+    then text. Menus also take "up", "down" and "enter".
 
     session: an id from list_sessions or a loose name.
     keys: key names in order, e.g. ["2"], ["down", "enter"], ["esc"],

@@ -92,8 +92,27 @@ Idle is never reported as finished. The summary is where "finished the work" vs
 ## Tools
 
 The reading tools carry `readOnlyHint: true`. `send_message` and `press_keys`
-are marked as acting (`press_keys` also as destructive); in the 2026-10-10 test
-ChatGPT still let Ralph call both without asking Amir first.
+are marked as acting (`press_keys` also as destructive), because they do act.
+The connector itself never asks anyone to approve a message; it only refuses
+when typing would land in the wrong place (a prompt on screen, Amir's unsent
+draft, an agent that has exited), and says so.
+
+Whether ChatGPT asks Amir before Ralph acts is the plugin's Permission setting
+in ChatGPT (Settings, Plugins, the plugin, Permission): Always ask, Allow
+read-only tools, Allow low-risk tools (ChatGPT's default), or Allow all tools.
+Since 2026-10-16 both plugins, "Coding sessions" and "Coding sessions (home
+server)", are set to **Allow all tools**, so Ralph sends what Amir says
+without stopping to ask.
+
+Why: at the default, typed requests ran both tools without asking (every send
+from 2026-10-10 to 10-15 was delivered), but in Amir's voice calls with Ralph
+on 2026-10-14 and 10-16 Ralph's reads reached both connectors and not one send
+did; Ralph reported each send as "uncertain" and the agents never got them.
+ChatGPT's Voice help says an action that needs approval waits for an on-screen
+tap during a call and spoken approval is not supported, so a send held for
+approval in a call that Amir takes away from the screen never leaves ChatGPT.
+The next voice call after the change is the test: the sends should show in the
+log as `send_message delivered`.
 
 | Tool | Answers |
 | --- | --- |

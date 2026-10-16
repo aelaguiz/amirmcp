@@ -71,7 +71,11 @@ cp .env.example .env          # key, secrets, machine name; see the comments
 ```
 
 Then in ChatGPT: Plugins, Add, Add custom MCP server, with that URL and "No
-authentication", then Connect. ChatGPT only reaches port 443. On a machine whose
+authentication", then Connect. Then set the plugin's Permission (Settings,
+Plugins, the plugin, Permission) to **Allow all tools**, so ChatGPT never
+holds a message for Amir to approve. At ChatGPT's default, "Allow low-risk
+tools", Ralph's sends during voice calls never reached the connector (see
+[Tools](docs/IMPLEMENTATION_PLAN.md#tools)). ChatGPT only reaches port 443. On a machine whose
 Tailscale 443 already serves other things (amir-server), set
 `AMIRMCP_TAILSCALE_NODE` so the connector gets its own Tailscale node; approve
 its login link once and turn off its key expiry in the Tailscale admin.

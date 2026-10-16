@@ -106,7 +106,8 @@ uncertain", and its text side could not see what the call had run. Setting
 both plugins' Permission in ChatGPT (Settings, Plugins, the plugin,
 Permission) to **Allow all tools** did not help: a call right after the change
 still sent nothing. What the calls did run were the tools marked read-only, so
-the two acting tools are marked the same way. Both plugins stay on Allow all
+the two acting tools are marked the same way. In Amir's next call (2026-10-16,
+6:12 AM) Ralph's test message was delivered in 3 seconds. Both plugins stay on Allow all
 tools, so typed requests never stop to ask either. After a change to the
 marks, press Refresh tools on both plugins so ChatGPT picks it up.
 

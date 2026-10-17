@@ -100,7 +100,12 @@ Three new tools on each machine's plugin, next to the six read-only ones:
 2. Refuses if the agent is waiting on a dialog: Claude's own record says
    `waiting`, Herdr says Codex is `blocked`, or the screen does not show the
    agent's input box. The refusal returns the screen so Ralph can answer the
-   prompt with `press_keys` instead.
+   prompt with `press_keys` instead. Claude's input box is the `❯` line
+   between two rules that span the pane. Until 2026-10-17 the connector also
+   required it among the last six lines of the screen, so an agent with
+   background agents listed under its footer looked like it was showing a
+   prompt, and every send to it was refused (the "pvai testing" release agent
+   that morning).
 3. Refuses if the input box holds text Amir typed and has not sent. Claude's
    and Codex's suggestion and placeholder text is drawn dim and is not a
    draft; anything else is.
@@ -128,8 +133,8 @@ reported as waiting on Amir, with the question, instead of idle.
 - Access is still the one secret in the URL; Amir chose light protection.
   ChatGPT does not ask him before Ralph sends: in the 2026-10-10 test Ralph
   called `send_message` and `press_keys` without a confirmation step. Each
-  plugin's "Permission" setting in ChatGPT (set to "Allow low-risk") is where
-  that would change.
+  plugin's "Permission" setting in ChatGPT (set to "Allow all tools" since
+  2026-10-16) is where that would change.
 - The connector never starts, stops or restarts agents, and never answers a
   prompt on its own. Every keystroke comes from a tool call Ralph made.
 - Grok Bot cannot send (Amir, 2026-10-11). Its address serves only the

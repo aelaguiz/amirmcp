@@ -2,8 +2,9 @@
 
 The screens in tests/screens/ are real captures from Claude Code 2.1.296 and
 Codex 0.161 in a lab Herdr session on 2026-10-10 (docs/SENDING_TO_AGENTS.md),
-and from agy 1.3.4 on 2026-10-13 (docs/AGY_SUPPORT.md). agy_with_tasks is the
-bottom of a real pane with its text swapped for neutral words.
+and from agy 1.3.4 on 2026-10-13 (docs/AGY_SUPPORT.md). agy_with_tasks and
+claude_with_agents are the bottoms of real panes with their text swapped for
+neutral words.
 """
 
 import json
@@ -22,6 +23,7 @@ EXPECTED = {
     "claude_busy": "ready",
     "claude_busy_queued": "ready",  # dim "Press up to edit queued messages"
     "claude_ssh_idle": "ready",  # Claude on amir-server, seen through ssh
+    "claude_with_agents": "ready",  # background agents listed under the box; dim suggestion in it
     "claude_draft": "draft",
     "claude_question": "absent",
     "claude_permission": "absent",
@@ -66,6 +68,13 @@ def test_drafts_are_read_back_and_shells_are_never_ready():
     assert control.input_box(screen("codex_draft"), "codex") == ("draft", "Amir codex draft")
     assert control.input_box(screen("agy_draft"), "agy") == ("draft", "Amir half typed this")
     assert control.input_box(screen("shell_after_exit"), "codex")[0] == "absent"
+
+
+def test_a_question_with_its_last_option_chosen_is_not_the_input_box():
+    # "4. Chat about this" sits straight under a rule; Enter would choose it.
+    chosen = screen("claude_question").replace("\n  4. Chat about this", "\n❯ 4. Chat about this")
+    assert "❯ 4." in chosen
+    assert control.input_box(chosen, "claude") == ("absent", "")
 
 
 def test_clean_keeps_text_and_drops_terminal_controls():

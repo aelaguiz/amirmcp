@@ -93,34 +93,43 @@ def input_box(screen_ansi: str, runtime: str) -> tuple[str, str]:
     """Whether the agent's input box is on screen and what Amir has typed in it.
 
     Returns ("ready", ""), ("draft", text) or ("absent", ""). Claude draws its
-    input box as a ❯ line straight under a rule; Codex as a › line straight
-    above its status footer; agy as a > line between two rules, which can sit
-    above a list of background tasks. All draw placeholder and suggestion text
-    dim, so only undimmed text is a draft. agy marks the chosen option of its
-    menus with > too, but never between rules.
+    input box as a ❯ line between two rules, which can sit above a list of
+    background agents; Codex as a › line straight above its status footer; agy
+    as a > line between two rules, which can sit above a list of background
+    tasks. All draw placeholder and suggestion text dim, so only undimmed text
+    is a draft. Claude and agy mark the chosen option of their menus with the
+    same glyph, but never between rules.
     """
     glyph = PROMPT_GLYPH[runtime]
     rows = screen_ansi.split("\n")
     texts = ["".join(c for c, _ in _cells(r)) for r in rows]
     filled = [i for i, t in enumerate(texts) if t.strip()]
-    bottom = set(filled[-12:] if runtime == "agy" else filled[-6:])
+    # Claude lists its background agents under the box, as many as are
+    # running, so its box is found by its rules alone.
+    bottom = set(filled if runtime == "claude" else filled[-12:] if runtime == "agy" else filled[-6:])
     width = max((len(t.rstrip()) for t in texts), default=0)
+
+    def full_rule(j: int) -> bool:
+        t = texts[j].strip()
+        return t.startswith("──") and len(t) >= 0.9 * width
+
     found, box = None, []
     for n, i in enumerate(filled):
         if i not in bottom or not texts[i].startswith(glyph):
             continue
-        above = texts[filled[n - 1]].strip() if n > 0 else ""
         if runtime == "claude":
-            if above.startswith("──"):
-                found, box = i, [i]
+            # A draft's wrapped lines are indented. A question's last option
+            # can sit straight under a rule too, but its key hints follow it
+            # unindented before the next rule.
+            following = filled[n + 1 : n + 6]
+            end = next((j for j in following if full_rule(j)), None)
+            inside = [j for j in following if end is not None and j < end]
+            if n > 0 and full_rule(filled[n - 1]) and end is not None and all(texts[j].startswith(" ") for j in inside):
+                found, box = i, [i, *inside]
         elif runtime == "agy":
             # The box's rules span the pane; the shorter rules above Amir's
             # earlier messages in the history do not. The box grows a line per
             # line of a draft and ends at the next full rule.
-            def full_rule(j: int) -> bool:
-                t = texts[j].strip()
-                return t.startswith("──") and len(t) >= 0.9 * width
-
             following = filled[n + 1 : n + 6]
             end = next((j for j in following if full_rule(j)), None)
             if n > 0 and full_rule(filled[n - 1]) and end is not None:

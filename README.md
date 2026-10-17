@@ -91,6 +91,11 @@ way but shows their Herdr panes only while the Mac is reachable.
 | Restart after a code change | `launchctl kickstart -k gui/$(id -u)/com.amir.amirmcp` | `systemctl --user restart amirmcp` |
 | Watch calls (the dot shows as `ua=openai-mcp/1.0.0`) | `tail -f ~/Library/Logs/amirmcp/amirmcp.log` | `tail -f ~/.local/state/amirmcp/amirmcp.log` |
 | Stop | `launchctl bootout gui/$(id -u)/com.amir.amirmcp && tailscale funnel --https=443 off` | `systemctl --user disable --now amirmcp amirmcp-tailscale` |
+| The dot can't reach it, but the log shows no calls and the service is up | `tailscale funnel --https=443 off && tailscale funnel --bg 8787`, wait a minute, then Refresh tools on the plugin | `tailscale --socket=$HOME/.local/state/amirmcp/tailscale/tailscaled.sock funnel --https=443 off`, then `... funnel --bg 8787` |
+
+On 2026-10-17 the Mac's public address stopped forwarding at 12:30 PM while
+the connector and Tailscale's own network kept working; turning Funnel off and
+on brought it back within a minute.
 
 | Task | Command |
 | --- | --- |

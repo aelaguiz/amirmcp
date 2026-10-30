@@ -2,6 +2,8 @@ import asyncio
 import json
 import time
 
+import pytest
+
 from amirmcp import herdr, server, sessions
 from amirmcp.server import SecretPath
 from amirmcp.sessions import Session, Snapshot
@@ -114,6 +116,29 @@ def test_read_secret_reaches_only_the_reading_tools():
     assert set(full) - set(read) == {"send_message", "press_keys"}
     assert all(t.annotations.read_only_hint for t in read.values())
     assert "send_message" not in server.mcp_read.instructions
+
+
+@pytest.mark.parametrize("process", [
+    {"name": "2.1.296", "argv": ["/Users/x/.local/share/claude/versions/2.1.296"]},
+    {"name": "claude", "argv": ["claude"]},
+    {"name": "2.1.314", "argv": ["claude", "--settings", "/Users/x/hooks.json"]},
+])
+def test_claude_keeps_its_pane_with_aimgr_process_names(tmp_path, monkeypatch, process):
+    """AI Manager sets argv[0] to claude while macOS keeps the version as comm."""
+    home = make_home(tmp_path, "abcd1234-0000", SIMPLE)
+    live_pane = pane()
+    live_pane.processes = [{"pid": 4242, **process}]
+    monkeypatch.delenv("AMIRMCP_HERDR_HOSTS", raising=False)
+    monkeypatch.setattr(herdr, "available", lambda: True)
+    monkeypatch.setattr(herdr, "all_panes", lambda: ([live_pane], []))
+    monkeypatch.setattr(sessions, "claude_process_records", lambda: {4242: (home, record("idle"))})
+    monkeypatch.setattr(sessions, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(sessions, "_pids_named", lambda name: [])
+    monkeypatch.setattr(sessions, "codex_account_labels", lambda: {})
+    [found] = sessions.snapshot(recent_hours=0).sessions
+    assert found.pane is live_pane
+    assert found.pid == 4242
+    assert not found.notes
 
 
 def test_agent_in_ssh_session_gets_the_remote_pane(tmp_path, monkeypatch):

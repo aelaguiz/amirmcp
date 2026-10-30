@@ -184,6 +184,17 @@ Results on 2026-10-10 (Claude Code 2.1.296, Codex 0.161):
 
 ChatGPT did not ask Amir to confirm either of Ralph's acting calls.
 
+2026-10-30 regression: AI Manager now sets its interactive Claude child's
+`argv[0]` to `claude`, while macOS still reports its executable name as a
+version number. The old detector missed that process, so amirmcp reported the
+agent outside Herdr and refused sends. The detector now recognizes both forms;
+the snapshot regression test failed before the fix and passes after it.
+Ralph reproduced the refusal against an isolated Claude Sonnet session, then
+sent the same command after the fix: `send_message` reported delivered at
+05:31:15 CDT and the agent replied `RALPH_DELIVERY_OK`. Ralph read and verified
+that reply. The 51 session and pane-control tests passed. The temporary agent
+and its private Herdr session were removed afterward.
+
 ## 9. agy (after any change to agy reading or sending)
 
 Same lab as section 8, with `agy` started in a workspace of the private Herdr

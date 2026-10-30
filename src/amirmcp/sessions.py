@@ -527,7 +527,9 @@ def _agy_for_pid(pid: int, pane: herdr.Pane | None, now: float) -> Session:
 
 def _is_claude(proc: dict[str, Any]) -> bool:
     argv0 = (proc.get("argv") or [""])[0]
-    return "/claude/versions/" in argv0 or proc.get("name") == "claude"
+    # AI Manager names the child "claude" in argv[0]; macOS comm still shows
+    # the executable's version number.
+    return argv0 == "claude" or "/claude/versions/" in argv0 or proc.get("name") == "claude"
 
 
 def _is_codex(proc: dict[str, Any]) -> bool:

@@ -15,6 +15,10 @@ Amir's Grok Bot reads the same sessions through a read-only address (since
 `press_keys`. Grok Bot's custom connectors reach every Bot on his account, so
 none of them can type into an agent.
 
+Codex conversations using non-OpenAI providers, including refuseless profiles,
+are hidden from every connector, including history and direct lookups. A Codex
+process appears once its conversation is indexed with an OpenAI provider.
+
 One copy runs on each machine where agents run, and each is its own plugin in
 the dot (ChatGPT, BrowserOS Work profile, chatgpt.com/plugins):
 
@@ -29,6 +33,14 @@ In Grok Bot they are the custom plugins "Coding sessions (Amir-M5)" at
 where `<read-secret>` is `AMIRMCP_READ_SECRET` from that machine's `.env`. Grok Bot
 has no settings form for custom servers on a personal account; ask a Bot in
 chat to add one (Grok Chief did).
+
+Claude connects to the full tools through OAuth at
+`https://amir-m5.fairy-salmon.ts.net/oauth/mcp` and
+`https://home-mcp.fairy-salmon.ts.net/oauth/mcp`. Set `AMIRMCP_PUBLIC_URL`
+to the machine's public HTTPS origin to enable OAuth. During Claude's sign-in,
+enter that machine's `AMIRMCP_SECRET`. The OAuth client and tokens persist in
+`~/.local/state/amirmcp/oauth.sqlite3` across restarts. The existing secret URLs
+for ChatGPT and Grok continue to work unchanged.
 
 Agents on amir-server run in SSH sessions opened from Herdr panes on the Mac.
 The server's copy reads the Mac's panes over SSH and matches each agent to its

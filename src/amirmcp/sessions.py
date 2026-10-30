@@ -317,7 +317,7 @@ def codex_threads(where: str, params: tuple) -> list[dict[str, Any]]:
     with _connect(state) as db:
         db.row_factory = sqlite3.Row
         rows = db.execute(
-            "select id, rollout_path, cwd, title, git_branch, first_user_message, updated_at_ms, thread_source "
+            "select id, rollout_path, cwd, title, git_branch, first_user_message, updated_at_ms, thread_source, model_provider "
             f"from threads where {where}",
             params,
         ).fetchall()
@@ -624,7 +624,9 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
                 else:
                     gaps.append(f"Claude process {pid} in {pane.session} {pane.pane_id} has no session record.")
             elif _is_codex(proc) and pid:
-                sessions.append(_codex_for_pid(pid, pane, labels, now))
+                s = _codex_for_pid(pid, pane, labels, now)
+                if s is not None:
+                    sessions.append(s)
                 seen_codex_pids.add(pid)
             elif _is_agy(proc) and pid:
                 sessions.append(_agy_for_pid(pid, pane, now))
@@ -654,7 +656,7 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
             # (the ChatGPT app's app-server and exec-server), not Amir's work.
             continue
         s = _codex_for_pid(pid, pane, labels, now)
-        if s.key not in seen_ids:
+        if s is not None and s.key not in seen_ids:
             if pane is None:
                 s.notes.append("Running, but not in any Herdr pane.")
             sessions.append(s)
@@ -700,7 +702,7 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
             seen_ids.add(s.key)
     stopped_threads = codex_threads("updated_at_ms >= ? and thread_source = 'user'", (int(cutoff * 1000),)) if recent_hours > 0 else []
     for thread in stopped_threads:
-        if f"codex:{thread['id']}" in seen_ids:
+        if thread.get("model_provider") != "openai" or f"codex:{thread['id']}" in seen_ids:
             continue
         s = codex_session(thread, None, None, labels, now)
         s.state = "stopped"
@@ -728,10 +730,14 @@ def snapshot(recent_hours: float = 24) -> Snapshot:
     return Snapshot(sessions=sessions, gaps=gaps, observed_at=now, ssh_panes=ssh_panes)
 
 
-def _codex_for_pid(pid: int, pane: herdr.Pane | None, labels: dict[str, str], now: float) -> Session:
+def _codex_for_pid(pid: int, pane: herdr.Pane | None, labels: dict[str, str], now: float) -> Session | None:
     thread_id = codex_thread_for_pid(pid)
     rows = codex_threads("id = ?", (thread_id,)) if thread_id else []
-    return codex_session(rows[0] if rows else None, pid, pane, labels, now)
+    # A process without an indexed thread has no provider we can verify yet.
+    # Wait until it starts a conversation rather than exposing a custom profile.
+    if not rows or rows[0].get("model_provider") != "openai":
+        return None
+    return codex_session(rows[0], pid, pane, labels, now)
 
 
 def _claude_cwd(path: str) -> str | None:

@@ -36,6 +36,7 @@ from mcp_types import ToolAnnotations
 from starlette.applications import Starlette
 
 from . import control, sessions, summarize, transcripts
+from .oauth import oauth_routes
 from .sessions import Session, Snapshot, local_iso
 
 log = logging.getLogger("amirmcp")
@@ -585,7 +586,7 @@ class LogCalls:
         )
 
 
-def build_app(secret: str, read_secret: str | None = None):
+def build_app(secret: str, read_secret: str | None = None, public_url: str | None = None, oauth_state_path: str | None = None):
     """The full tools under the secret, and the reading tools under the read secret."""
     servers = {secret: (mcp, "full")}
     if read_secret:
@@ -613,7 +614,8 @@ def build_app(secret: str, read_secret: str | None = None):
                 await stack.enter_async_context(server.session_manager.run())
             yield
 
-    app = Starlette(lifespan=lifespan)
+    routes = oauth_routes(secret, public_url, oauth_state_path or "~/.local/state/amirmcp/oauth.sqlite3", apps[secret]) if public_url else []
+    app = Starlette(lifespan=lifespan, routes=routes)
     app.mount("/", SecretPath(apps))
     return app
 
@@ -648,7 +650,7 @@ def main() -> None:
         log_path,
     )
     # log_config=None sends uvicorn's own messages through the rotating file too.
-    uvicorn.run(build_app(secret, read_secret), host="127.0.0.1", port=port, log_level="warning", log_config=None)
+    uvicorn.run(build_app(secret, read_secret, os.environ.get("AMIRMCP_PUBLIC_URL")), host="127.0.0.1", port=port, log_level="warning", log_config=None)
 
 
 if __name__ == "__main__":

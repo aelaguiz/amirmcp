@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 import time
 
 import pytest
@@ -74,6 +75,43 @@ def test_find_by_id_pane_and_name():
     assert sessions.find(snap, "the seo plan") == [seo]
     assert sessions.find(snap, "psagentspace") == [seo, bugs]  # ambiguous: both returned
     assert sessions.find(snap, "nothing like this") == []
+
+
+def test_codex_custom_providers_are_hidden_from_live_and_stopped_sessions(tmp_path, monkeypatch):
+    """A hidden conversation cannot return through history or direct lookup."""
+    db = sqlite3.connect(tmp_path / "state_1.sqlite")
+    db.execute("create table threads (id text, rollout_path text, cwd text, title text, git_branch text, "
+               "first_user_message text, updated_at_ms integer, thread_source text, model_provider text)")
+    now = int(time.time() * 1000)
+    db.executemany("insert into threads values (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        (name, None, "/repo", name, None, name, now, "user", provider)
+        for name, provider in [("standard", "openai"), ("refuseless", "refuseless"),
+                               ("other-custom", "deepseek"), ("unknown", None)]
+    ])
+    db.commit()
+    db.close()
+    live_pane = pane()
+    live_pane.processes = [{"name": "codex", "pid": pid} for pid in (1, 2, 3)]
+    monkeypatch.setattr(sessions, "CODEX_HOME", str(tmp_path))
+    monkeypatch.setattr(herdr, "available", lambda: True)
+    monkeypatch.setattr(herdr, "all_panes", lambda: ([live_pane], []))
+    monkeypatch.setattr(sessions, "claude_process_records", lambda: {})
+    monkeypatch.setattr(sessions, "claude_homes", lambda: [])
+    monkeypatch.setattr(sessions, "codex_account_labels", lambda: {})
+    monkeypatch.setattr(sessions, "_pids_named", lambda name: [1, 2, 3, 4] if name == "codex" else [])
+    monkeypatch.setattr(sessions, "codex_thread_for_pid", lambda pid: {1: "standard", 2: "refuseless", 3: None, 4: "other-custom"}.get(pid))
+    monkeypatch.setattr(sessions, "agy_conversations", lambda *args: [])
+    monkeypatch.delenv("AMIRMCP_HERDR_HOSTS", raising=False)
+
+    live = sessions.snapshot(recent_hours=0)
+    with_history = sessions.snapshot(recent_hours=24)
+    assert [s.session_id for s in live.sessions] == ["standard"]
+    assert [s.session_id for s in with_history.sessions] == ["standard"]
+    assert not sessions.find(with_history, "refuseless")
+    assert not sessions.find(with_history, "other-custom")
+    monkeypatch.setattr(server, "_snapshot", lambda include_stopped: with_history)
+    with pytest.raises(server.ToolError, match="No session matches"):
+        server._resolve("refuseless")
 
 
 def test_secret_path_gate():

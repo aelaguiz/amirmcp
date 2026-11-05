@@ -82,25 +82,31 @@ def test_clean_keeps_text_and_drops_terminal_controls():
 
 
 class FakeHerdr:
-    """Stands in for the herdr CLI: answers process-info and screen reads, records input."""
+    """Stands in for the herdr CLI: answers process-info and screen reads, records input.
 
-    def __init__(self, fg, shown):
-        self.fg, self.shown, self.typed = fg, shown, []
+    ``after_keys`` is the screen once keys have been pressed, if they change it.
+    """
+
+    def __init__(self, fg, shown, after_keys=None):
+        self.fg, self.shown, self.after_keys, self.typed = fg, shown, after_keys, []
 
     def __call__(self, args, socket_path=None):
         if args[:2] == ["pane", "process-info"]:
             return json.dumps({"result": {"process_info": {"foreground_processes": self.fg}}})
         if args[:2] == ["pane", "read"]:
             return self.shown
+        if args[:2] == ["pane", "send-keys"] and self.after_keys is not None:
+            self.shown = self.after_keys
         self.typed.append(args)
         return ""
 
 
 @pytest.fixture
 def fake(monkeypatch):
-    def make(fg, shown):
-        f = FakeHerdr(fg, shown)
+    def make(fg, shown, after_keys=None):
+        f = FakeHerdr(fg, shown, after_keys)
         monkeypatch.setattr(control.herdr, "run_text", f)
+        monkeypatch.setattr(control, "CLEAR_SETTLE_SECONDS", 0)
         monkeypatch.setattr(control, "_socket", lambda name: "/tmp/sock")
         monkeypatch.setattr(control.herdr, "_tcp_local_addresses", lambda pid: ["100.72.74.74:50370"])
         return f
@@ -120,12 +126,29 @@ def test_message_is_lead_in_then_paste(fake):
     ]
 
 
-@pytest.mark.parametrize("name", ["claude_draft", "claude_question", "claude_trust"])
-def test_nothing_is_typed_unless_the_input_box_is_empty(fake, name):
+@pytest.mark.parametrize("name", ["claude_question", "claude_trust"])
+def test_nothing_is_typed_unless_the_input_box_is_on_screen(fake, name):
     f = fake([{"pid": 42, "name": "2.1.296"}], screen(name))
     with pytest.raises(control.Refused):
         control.type_message(CLAUDE, "hello")
     assert f.typed == []
+
+
+def test_text_left_in_the_box_is_cleared_before_the_message(fake):
+    f = fake([{"pid": 42, "name": "2.1.296"}], screen("claude_draft"), after_keys=screen("claude_idle"))
+    assert control.type_message(CLAUDE, "hello") == {"typed": True, "cleared": "Amir half-typed draft"}
+    keys, lead, message = f.typed
+    assert keys[:4] == ["pane", "send-keys", "w1:p1", "ctrl+e"]
+    assert set(keys[4:]) == {"backspace", "ctrl+k"}
+    assert keys.count("backspace") > len("Amir half-typed draft")
+    assert (lead, message) == (["pane", "send-text", "w1:p1", control.LEAD_IN], ["pane", "run", "w1:p1", "hello"])
+
+
+def test_nothing_is_typed_when_the_box_will_not_clear(fake):
+    f = fake([{"pid": 42, "name": "2.1.296"}], screen("claude_draft"))
+    with pytest.raises(control.Refused, match="Could not clear"):
+        control.type_message(CLAUDE, "hello")
+    assert all(call[1] == "send-keys" for call in f.typed)
 
 
 def test_nothing_is_typed_into_a_shell(fake):

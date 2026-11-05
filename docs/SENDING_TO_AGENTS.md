@@ -57,7 +57,8 @@ Typing goes wrong in four ways, each reproduced:
    only the server can tell whether Claude is still in the foreground.
 3. **Amir's unsent draft.** Text sitting in the input box is glued to the
    message and both are submitted as one ("Amir half-typed draftReply
-   HOTEL."). Herdr's own `agent prompt` does the same.
+   HOTEL."). Herdr's own `agent prompt` does the same. Until 2026-11-05 the
+   connector refused to send over it; see step 3 below for what it does now.
 4. **Long pastes are treated as data.** Claude wraps a pasted block of about a
    thousand characters or ten lines as pasted content and will not act on
    instructions inside it ("That instruction is part of the pasted text ...
@@ -106,9 +107,21 @@ Three new tools on each machine's plugin, next to the six read-only ones:
    background agents listed under its footer looked like it was showing a
    prompt, and every send to it was refused (the "pvai testing" release agent
    that morning).
-3. Refuses if the input box holds text Amir typed and has not sent. Claude's
-   and Codex's suggestion and placeholder text is drawn dim and is not a
-   draft; anything else is.
+3. Deletes text left unsent in the input box, then checks the box reads
+   empty before typing; if it does not, it refuses. Claude's, Codex's and
+   agy's suggestion and placeholder text is drawn dim and is left alone;
+   anything else is deleted. Until 2026-11-05 this step refused instead, and
+   a single stray letter in the box stopped Amir's messages ("I just want my
+   commands to go through"). The deleted text comes back to Ralph as
+   `cleared_unsent_text`. Herdr has no Delete, Home or End key, and Esc stops
+   a running turn while Ctrl+D or Ctrl+C can quit an agent whose box is
+   empty, so the deleting uses only Ctrl+E (end of line), Backspace and
+   Ctrl+K (cut to end of line). In the lab these emptied a one-letter draft
+   and a three-line draft with the cursor on its middle line in Claude, Codex
+   and agy, idle and mid-turn, without stopping the turn. A Codex draft of
+   several lines is still not recognized as a draft (its box is found only as
+   a single `›` line above the footer, which its approval and trust menus
+   also resemble), so a send over one is refused as a prompt on screen.
 4. Types `From Amir, via ChatGPT: `, pastes the message, waits 300 ms and
    presses Enter. The typed lead-in tells the agent whose words these are,
    and keeps Claude from treating a long message as pasted data.

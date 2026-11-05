@@ -9,8 +9,9 @@ a message goes wrong, and each check here answers one of them:
   dialog): type only when the agent's input box is on screen.
 * The pane is a shell because the agent exited: type only when the agent
   process itself is in the foreground.
-* Amir's unsent draft gets glued to the message: refuse when the input box
-  holds text that is not dim placeholder or suggestion text.
+* Text left unsent in the input box gets glued to the message: delete it
+  first (text that is not dim placeholder or suggestion text), and type
+  nothing unless the box then reads empty.
 * Claude treats a long paste as data, not instructions: type a short lead-in
   before pasting the message.
 
@@ -34,6 +35,7 @@ from . import herdr
 LEAD_IN = "From Amir, via ChatGPT: "
 KEY_GAP_SECONDS = 0.4
 SETTLE_SECONDS = 1.5
+CLEAR_SETTLE_SECONDS = 0.5
 
 
 class Refused(Exception):
@@ -212,11 +214,36 @@ def type_message(target: Target, text: str) -> dict[str, Any]:
             "Read the screen and answer it with press_keys first.",
             plain(shown),
         )
+    cleared = draft
     if state == "draft":
-        raise Refused(f"Amir has unsent text in the agent's input box ({draft[:120]!r}); sending now would merge with it.", plain(shown))
+        clear_input(target, draft)
     _herdr(target, "pane", "send-text", target.pane_id, LEAD_IN)
     _herdr(target, "pane", "run", target.pane_id, clean(text))
-    return {"typed": True}
+    return {"typed": True, "cleared": cleared}
+
+
+def clear_input(target: Target, draft: str) -> None:
+    """Delete text left unsent in the input box so it is not glued to the message.
+
+    Amir, 2026-11-05: a stray letter or old draft in the box must not stop his
+    message. Only keys that edit text are used, since Esc stops a running turn
+    and Ctrl+D or Ctrl+C can quit an agent whose box is empty, and Herdr has no
+    Delete, Home or End: Ctrl+E goes to the end of the cursor's line, Backspace
+    removes that line and everything before it, and Ctrl+K removes the lines
+    after it. Spare presses on an empty box do nothing in Claude, Codex or agy.
+    Text the visible box did not show gets another pass; if the box is still
+    not empty, nothing is typed.
+    """
+    for _ in range(3):
+        n = len(draft) + 5
+        _herdr(target, "pane", "send-keys", target.pane_id, "ctrl+e", *["backspace"] * n, *["ctrl+k"] * n)
+        time.sleep(CLEAR_SETTLE_SECONDS)
+        shown = screen(target)
+        state, draft = input_box(shown, target.runtime)
+        if state != "draft":
+            break
+    if state != "ready":
+        raise Refused(f"Could not clear the agent's input box (it still shows {draft[:120]!r}); the message was not typed.", plain(shown))
 
 
 def press(target: Target, keys: list[str], text: str | None) -> dict[str, Any]:

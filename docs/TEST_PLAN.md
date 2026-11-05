@@ -24,7 +24,7 @@ records, so they run anywhere in about a second.
 | Secret path | requests outside `/<secret>/` get a 404; requests under it reach the app with the prefix removed. |
 | Input box | 28 real screen captures (`tests/screens/`) read as ready, draft or absent: placeholders, suggestions and queued-message hints are not drafts; Claude, Codex and agy menus, questions, approvals and trust dialogs have no input box, and neither does an earlier message in agy's history. |
 | agy steps | step records built by field number become user, assistant, tool and event entries with step-index cursors; a failed command is an error; a waiting `ask_question` blocks the session with its question; reading leaves agy's files untouched; a pane's agy is tied to its conversation. |
-| Typing | a message is the typed lead-in then the paste; nothing is typed over a draft, into a menu, into a shell, or into a pane whose SSH connection is a different one. |
+| Typing | a message is the typed lead-in then the paste; a draft is deleted first, and nothing is typed if the box will not empty, into a menu, into a shell, or into a pane whose SSH connection is a different one. |
 | Codex question | an unanswered `request_user_input` reads as waiting on Amir until his next message. |
 | Delivery check | the first transcript line written after sending is found (it was skipped once). |
 

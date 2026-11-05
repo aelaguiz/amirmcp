@@ -434,10 +434,11 @@ def send_message(session: str, text: str) -> dict[str, Any]:
 
     It works whether the agent is idle or mid-turn (a mid-turn message is read
     at the agent's next step). A Codex agent that asked a question takes the
-    message as the answer. It refuses, without typing anything, when the agent
-    is showing a prompt or menu (answer that with press_keys after read_screen),
-    when Amir has unsent text in the input box, or when the agent is no longer
-    running in its pane.
+    message as the answer. Text left unsent in the input box (a stray letter,
+    an old draft) is deleted first, as Amir wants, and returned as
+    cleared_unsent_text. It refuses, without typing anything, when the agent
+    is showing a prompt or menu (answer that with press_keys after read_screen)
+    or when the agent is no longer running in its pane.
 
     Result: "delivered" when the agent's own transcript shows the message
     (with its cursor), "queued" when the screen shows it waiting for the
@@ -467,13 +468,14 @@ def send_message(session: str, text: str) -> dict[str, Any]:
     reply = _pane_result(control.run_on(host, {"op": "send", "target": target.__dict__, "text": text}))
     if reply.get("result") == "refused":
         return {"session": s.short_id, **reply}
+    cleared = {"cleared_unsent_text": reply["cleared"]} if reply.get("cleared") else {}
     deadline = time.time() + CONFIRM_SECONDS
     while time.time() < deadline:
         time.sleep(1)
         entry = _arrived(s, cursor, text)
         if entry:
             log.info("send_message delivered to %s at c%d", s.short_id, entry.cursor)
-            return {"session": s.short_id, "result": "delivered", "cursor": f"c{entry.cursor}", "at": transcripts.local_ts(entry.ts)}
+            return {"session": s.short_id, "result": "delivered", "cursor": f"c{entry.cursor}", "at": transcripts.local_ts(entry.ts), **cleared}
     look = control.run_on(host, {"op": "screen", "target": target.__dict__})
     screen = look.get("screen", "")
     lead = control.LEAD_IN.strip()
@@ -484,7 +486,7 @@ def send_message(session: str, text: str) -> dict[str, Any]:
     else:
         result, detail = "not confirmed", f"Typed, but the transcript does not show it after {CONFIRM_SECONDS} s."
     log.info("send_message %s to %s", result, s.short_id)
-    return {"session": s.short_id, "result": result, "detail": detail, "screen": _tail_rows(screen)}
+    return {"session": s.short_id, "result": result, "detail": detail, **cleared, "screen": _tail_rows(screen)}
 
 
 @mcp.tool(annotations=ACTS)

@@ -64,7 +64,7 @@ an agent running on the server.
 | `read_history` | A bounded slice of a transcript, paged by cursor. |
 | `search_history` | Find an error, PR, test or decision across transcripts. |
 | `read_screen` | What an agent's pane shows right now, such as a question or approval it is waiting on. |
-| `send_message` | "Tell it to ..." Types Amir's message into the agent's input box, prefixed "From Amir, via ChatGPT:", and confirms the agent got it. Refuses when a prompt is showing, Amir has unsent text there, or the agent has exited. |
+| `send_message` | "Tell it to ..." Types Amir's message into the agent's input box, prefixed "From Amir, via ChatGPT:", and confirms the agent got it. Deletes anything left unsent in the input box first. Refuses when a prompt is showing or the agent has exited. |
 | `press_keys` | Answers a question, menu or approval the agent is showing ("2", "y", "esc"), optionally with typed text. |
 
 Sending works for agents on amir-server too: the server's copy types through

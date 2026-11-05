@@ -94,7 +94,7 @@ Idle is never reported as finished. The summary is where "finished the work" vs
 Every tool carries `readOnlyHint: true`, including `send_message` and
 `press_keys`, which do act. The connector itself never asks anyone to approve a
 message; it only refuses when typing would land in the wrong place (a prompt
-on screen, Amir's unsent draft, an agent that has exited), and says so. Grok
+on screen, an agent that has exited), and says so. Grok
 Bot's read-only endpoint keeps the two acting tools out by never registering
 them, not by this mark.
 

@@ -195,6 +195,24 @@ sent the same command after the fix: `send_message` reported delivered at
 that reply. The 51 session and pane-control tests passed. The temporary agent
 and its private Herdr session were removed afterward.
 
+2026-11-05, clearing text left in the input box (Claude Code 2.1.317, Codex
+0.163.0-alpha.5, agy with Gemini 4 Argon). That morning Ralph refused to pass
+two issues to the coaching dev agent because a "c" sat in its input box. In the
+lab, a one-letter draft made all three agents refuse before the change. After
+it:
+
+| Case | Claude | Codex | agy |
+| --- | --- | --- | --- |
+| Idle, one stray letter | cleared, delivered clean | cleared, delivered | cleared, delivered clean |
+| Mid-turn (30-second command running), one stray letter | cleared, delivered; command finished, both replies given | cleared, delivered; command finished, both replies given | cleared, delivered; command finished, both replies given |
+| Three-line draft, cursor on the middle line (keys alone) | emptied | emptied | emptied |
+| Ralph, BrowserOS Work profile: "tell the Claude agent in my amirmcp-lab Herdr session, workspace claudelab, to reply with exactly RALPH CLEAR OK" with a "z" in its box | `list_sessions`, `send_message` (delivered, `cleared_unsent_text: z`), `read_history`; the agent got "From Amir, via ChatGPT: Reply with exactly RALPH CLEAR OK." and replied RALPH CLEAR OK; Ralph: "It reported clearing an unsent 'z' before delivery." | | |
+
+Codex 0.163 drops the typed "From Amir, via ChatGPT:" lead-in from every
+message, idle or mid-turn, with or without a draft: its transcript records only
+the pasted text. The message arrives and Codex acts on it; it just doesn't say
+it came through ChatGPT. Not fixed.
+
 ## 9. agy (after any change to agy reading or sending)
 
 Same lab as section 8, with `agy` started in a workspace of the private Herdr

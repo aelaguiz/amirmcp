@@ -153,13 +153,13 @@ def list_sessions(query: str | None = None, include_stopped: bool = False) -> di
     directory, title, live state, and when it last wrote.
 
     query: optional loose name to filter by ("seo", "psagentspace bugs", a pane
-    id like wH2:p1, or an id). Matching also looks at sessions that stopped in
-    the last 72 hours.
-    include_stopped: also list sessions with no running process that were active
-    in the last 72 hours (often many automated runs).
+    id like wH2:p1, or an id).
+    include_stopped: defaults to false, so lists and name searches return only
+    running sessions. Set true to also include sessions with no running process
+    that were active in the last 72 hours (often many automated runs).
     """
     log.info("tool list_sessions query=%r include_stopped=%s", query, include_stopped)
-    snap = _snapshot(include_stopped or bool(query))
+    snap = _snapshot(include_stopped)
     found = sessions.find(snap, query) if query else [s for s in snap.sessions if include_stopped or s.state != "stopped"]
     counts: dict[str, int] = {}
     for s in snap.sessions:

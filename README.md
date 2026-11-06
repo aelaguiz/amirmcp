@@ -67,6 +67,10 @@ an agent running on the server.
 | `send_message` | "Tell it to ..." Types Amir's message into the agent's input box, prefixed "From Amir, via ChatGPT:", and confirms the agent got it. Deletes anything left unsent in the input box first. Refuses when a prompt is showing or the agent has exited. |
 | `press_keys` | Answers a question, menu or approval the agent is showing ("2", "y", "esc"), optionally with typed text. |
 
+`list_sessions` returns only running sessions by default, including when
+searching by name. Set `include_stopped=true` to also include sessions that
+were active in the last 72 hours and have no running process.
+
 Sending works for agents on amir-server too: the server's copy types through
 the Mac's Herdr pane over SSH. Why each check exists, and what failed without
 it, is in [Sending to agents](docs/SENDING_TO_AGENTS.md).

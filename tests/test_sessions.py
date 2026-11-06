@@ -77,6 +77,31 @@ def test_find_by_id_pane_and_name():
     assert sessions.find(snap, "nothing like this") == []
 
 
+@pytest.mark.parametrize(("arguments", "expected_ids", "expected_counts"), [
+    ({}, ["claude:11111111", "claude:22222222"], {"idle": 2}),
+    ({"include_stopped": False}, ["claude:11111111", "claude:22222222"], {"idle": 2}),
+    ({"include_stopped": True}, ["claude:11111111", "claude:22222222", "claude:33333333"], {"idle": 2, "stopped": 1}),
+    ({"query": "SEO"}, ["claude:11111111"], {"idle": 2}),
+    ({"query": "SEO", "include_stopped": False}, ["claude:11111111"], {"idle": 2}),
+    ({"query": "SEO", "include_stopped": True}, ["claude:11111111", "claude:33333333"], {"idle": 2, "stopped": 1}),
+])
+def test_list_sessions_respects_include_stopped(monkeypatch, arguments, expected_ids, expected_counts):
+    now = time.time()
+    live = [
+        Session("claude", "11111111", None, None, "/repo", "SEO plan", state="idle"),
+        Session("claude", "22222222", None, None, "/repo", "Fix bugs", state="idle"),
+    ]
+    stopped = Session("claude", "33333333", None, None, "/repo", "SEO old plan", state="stopped")
+    monkeypatch.setattr(server, "_snapshot", lambda include_stopped: Snapshot(
+        live + ([stopped] if include_stopped else []), [], now,
+    ))
+
+    result = server.list_sessions(**arguments)
+
+    assert [s["id"] for s in result["sessions"]] == expected_ids
+    assert result["counts_by_state"] == expected_counts
+
+
 def test_codex_custom_providers_are_hidden_from_live_and_stopped_sessions(tmp_path, monkeypatch):
     """A hidden conversation cannot return through history or direct lookup."""
     db = sqlite3.connect(tmp_path / "state_1.sqlite")
